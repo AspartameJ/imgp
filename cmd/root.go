@@ -35,7 +35,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "imgp",
 	Short:   "Cross-platform Docker image pull and save tool",
-	Version: "1.0.0",
+	Version: "1.2.0",
 }
 
 var saveCmd = &cobra.Command{
@@ -47,8 +47,8 @@ and save it as a Docker-compatible tar archive.
 Supports multi-architecture images, parallel downloads, and resume.
 
 Examples:
-  imgp save nginx:latest -o nginx.tar
-  imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
+  imgp save hello-world:latest -o hello-world.tar
+  imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
   imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSave,
@@ -202,7 +202,7 @@ func init() {
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
-	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: binary dir/.imgp-cache)")
+	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (OS-specific default: %LOCALAPPDATA%/imgp/cache, ~/.cache/imgp, ~/Library/Caches/imgp)")
 }
 
 func cmdCacheDir() string {
