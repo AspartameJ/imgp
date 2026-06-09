@@ -103,6 +103,8 @@ imgp save [image] [flags]
 | `-P, --parallel` | 4 (from config) | Number of parallel layer downloads |
 | `--no-cache` | false | Ignore cache, force re-download |
 | `--cache-dir` | OS-specific (see Cache) | Custom cache directory |
+| `--timeout` | 0 (no limit) | Overall operation timeout in minutes |
+| `--layer-timeout` | 30 | Per-layer download timeout in minutes |
 | `-q, --quiet` | false | Output only the tar path |
 | `-h, --help` | - | Show help |
 
@@ -275,6 +277,21 @@ docker load -i hello-world.tar
 ### Q: Download was interrupted. What now?
 
 Layers already downloaded are cached. Run the same `imgp save` command again and it will resume. Use `--no-cache` to force a full re-download.
+
+### Q: Download timed out. What can I do?
+
+Increase the timeout values for large images or slow networks:
+
+```bash
+# 60 minutes per layer, 2 hours overall
+imgp save large-image:latest -o large.tar --layer-timeout 60 --timeout 120
+
+# Persist in config
+imgp config set layer-timeout 60
+imgp config set timeout 120
+```
+
+Default: 30 minutes per layer, no overall limit (0).
 
 ### Q: What platform values are supported?
 
