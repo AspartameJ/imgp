@@ -133,16 +133,25 @@ var guiProgress pullProgress
 
 var guiCmd = &cobra.Command{
 	Use:   "gui",
-	Short: "Start web GUI",
-	Long: `Start a web-based graphical interface in your browser.
+	Short: "Start web GUI (browser interface)",
+	Long: `Start a web-based graphical user interface in your browser.
 
-Opens a local HTTP server at http://127.0.0.1:8080 for an intuitive
-web interface to download Docker images.`,
+Opens a local HTTP server that provides an intuitive web interface
+for downloading Docker images. Features:
+
+  - Image name and platform selection
+  - Real-time per-layer download progress
+  - Mirror acceleration configuration (add/edit/remove)
+  - Cache management (view size, clear)
+  - Private registry authentication
+
+Default: http://127.0.0.1:8080
+Use --port to change the port.`,
 	RunE: runGUI,
 }
 
 func init() {
-	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "8080", "Web GUI port")
+	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "8080", "Web GUI port (default: 8080)")
 }
 
 func runGUI(cmd *cobra.Command, args []string) error {
