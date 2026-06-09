@@ -74,7 +74,7 @@ Configuration is stored in `imgp.json` next to the binary. Defaults:
 ```json
 {
   "mirror_map": {
-    "docker.io": ["docker.daocloud.io"],
+    "docker.io": ["docker.nju.edu.cn"],
     "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
@@ -89,7 +89,7 @@ Edit via CLI:
 imgp config list
 
 # Set mirror mapping
-imgp config set mirror-map "docker.io=docker.daocloud.io,quay.io=quay.mirrors.daocloud.io"
+imgp config set mirror-map "docker.io=docker.nju.edu.cn,quay.io=quay.mirrors.daocloud.io"
 
 # Multiple mirrors per registry (separated by |)
 imgp config set mirror-map "docker.io=mirror1|mirror2"
