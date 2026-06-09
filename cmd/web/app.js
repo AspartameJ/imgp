@@ -1,5 +1,9 @@
 let eventSource = null;
 
+window.addEventListener('beforeunload', function() {
+  navigator.sendBeacon('/api/shutdown');
+});
+
 function startDownload() {
   const image = document.getElementById('imageName').value.trim();
   if (!image) { alert('请输入镜像名'); return; }
