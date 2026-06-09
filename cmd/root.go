@@ -30,6 +30,8 @@ var (
 	quiet       bool
 	noCache     bool
 	cacheDir    string
+	timeoutMin  int
+	layerTimeoutMin int
 )
 
 var rootCmd = &cobra.Command{
@@ -117,7 +119,9 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   mirror-map          Comma-separated registry=mirror pairs (e.g., docker.io=mirror1|mirror2,quay.io=mirror)
   insecure-registries Comma-separated registry hostnames
-  parallelism         Number of parallel downloads (default: 4)`,
+  parallelism         Number of parallel downloads (default: 4)
+  layer-timeout       Per-layer download timeout in minutes (default: 30)
+  timeout             Overall operation timeout in minutes (default: 0 = no limit)`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -148,8 +152,20 @@ Supported keys:
 				return fmt.Errorf("parallelism must be a positive integer")
 			}
 			cfg.Parallelism = n
+		case "layer-timeout":
+			n := 0
+			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 1 {
+				return fmt.Errorf("layer-timeout must be a positive integer")
+			}
+			cfg.LayerTimeout = n
+		case "timeout":
+			n := 0
+			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+				return fmt.Errorf("timeout must be 0 or a positive integer")
+			}
+			cfg.Timeout = n
 		default:
-			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism)", key)
+			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout)", key)
 		}
 		return cfg.Save()
 	},
@@ -166,6 +182,8 @@ var configListCmd = &cobra.Command{
 		data := fmt.Sprintf("Mirror Map: %v\n", cfg.MirrorMap)
 		data += fmt.Sprintf("Insecure Registries: %v\n", cfg.InsecureRegistries)
 		data += fmt.Sprintf("Parallelism: %d\n", cfg.Parallelism)
+		data += fmt.Sprintf("Layer Timeout: %d min\n", cfg.LayerTimeout)
+		data += fmt.Sprintf("Timeout: %d min\n", cfg.Timeout)
 		_, err = fmt.Print(data)
 		return err
 	},
@@ -204,6 +222,8 @@ func init() {
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (OS-specific default: %LOCALAPPDATA%/imgp/cache, ~/.cache/imgp, ~/Library/Caches/imgp)")
+	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
+	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes")
 }
 
 func cmdCacheDir() string {
@@ -224,6 +244,19 @@ func runSave(cmd *cobra.Command, args []string) error {
 	par := cfg.Parallelism
 	if parallelism > 0 {
 		par = parallelism
+	}
+
+	lt := cfg.LayerTimeout
+	if lt == 0 {
+		lt = 30
+	}
+	if layerTimeoutMin > 0 {
+		lt = layerTimeoutMin
+	}
+
+	to := timeoutMin
+	if to == 0 && cfg.Timeout > 0 {
+		to = cfg.Timeout
 	}
 
 	targetPlatform := platform
@@ -301,8 +334,16 @@ func runSave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	pl := puller.NewPuller(cd).WithNoCache(noCache)
-	eventCh, err := pl.Pull(cmd.Context(), tasks, par)
+	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt) * time.Minute)
+
+	ctx := cmd.Context()
+	if to > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(to)*time.Minute)
+		defer cancel()
+	}
+
+	eventCh, err := pl.Pull(ctx, tasks, par)
 	if err != nil {
 		return fmt.Errorf("start pull: %w", err)
 	}
