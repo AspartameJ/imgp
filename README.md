@@ -157,7 +157,7 @@ imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ### `imgp gui` — Web 图形界面
 
 ```bash
-# 启动 GUI（默认端口 8080）
+# 启动 GUI（默认端口 9191）
 imgp gui
 
 # 指定端口

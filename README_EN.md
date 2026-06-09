@@ -136,7 +136,7 @@ imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ### `imgp gui` — Web GUI
 
 ```bash
-# Start GUI (default port 8080)
+# Start GUI (default port 9191)
 imgp gui
 
 # Custom port

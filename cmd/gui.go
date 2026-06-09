@@ -156,13 +156,13 @@ for downloading Docker images. Features:
   - Cache management (view size, clear)
   - Private registry authentication
 
-Default: http://127.0.0.1:8080
+Default: http://127.0.0.1:9191
 Use --port to change the port.`,
 	RunE: runGUI,
 }
 
 func init() {
-	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "8080", "Web GUI port (default: 8080)")
+	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "9191", "Web GUI port (default: 9191)")
 }
 
 var guiServer *http.Server
