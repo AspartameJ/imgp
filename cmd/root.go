@@ -352,7 +352,12 @@ func runSave(cmd *cobra.Command, args []string) error {
 	pullDone := progress.startPull(eventCh, tasks)
 	<-pullDone
 	if progress.hasError {
-		return fmt.Errorf("layer download failed, see errors above")
+		for _, ls := range progress.layers {
+			if ls.status == "error" && ls.errMsg != "" {
+				return fmt.Errorf("layer %s download failed: %s", shorten(ls.digest, 12), ls.errMsg)
+			}
+		}
+		return fmt.Errorf("layer download failed")
 	}
 
 	// Phase 2: Export
@@ -402,6 +407,7 @@ type layerState struct {
 	total   int64
 	current int64
 	status  string
+	errMsg  string
 }
 
 type progressDisplay struct {
@@ -456,6 +462,7 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 				if evt.Err != nil {
 					p.hasError = true
 					p.layers[evt.Index].status = "error"
+					p.layers[evt.Index].errMsg = evt.Err.Error()
 				} else {
 					p.layers[evt.Index].current = evt.Bytes
 					p.layers[evt.Index].status = evt.Status
@@ -521,8 +528,12 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 						fmt.Printf("\033[2K\r    ◌ %s %s %s/%s\n",
 							shorten(ls.digest, 12), bar,
 							formatBytes(ls.current), formatBytes(ls.total))
-					case "error":
-						fmt.Printf("\033[2K\r    ✗ %s download failed\n", shorten(ls.digest, 12))
+				case "error":
+					msg := "download failed"
+					if ls.errMsg != "" {
+						msg = ls.errMsg
+					}
+					fmt.Printf("\033[2K\r    ✗ %s %s\n", shorten(ls.digest, 12), msg)
 					default:
 						fmt.Printf("\033[2K\r    · %s waiting...\n", shorten(ls.digest, 12))
 					}
