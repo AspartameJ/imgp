@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,12 +31,14 @@ type Puller struct {
 	cacheDir     string
 	noCache      bool
 	layerTimeout time.Duration
+	maxRetries   int
 }
 
 func NewPuller(cacheDir string) *Puller {
 	return &Puller{
 		cacheDir:     cacheDir,
 		layerTimeout: 30 * time.Minute,
+		maxRetries:   2,
 	}
 }
 
@@ -49,6 +52,29 @@ func (p *Puller) WithLayerTimeout(d time.Duration) *Puller {
 		p.layerTimeout = d
 	}
 	return p
+}
+
+func (p *Puller) WithRetry(n int) *Puller {
+	if n >= 0 {
+		p.maxRetries = n
+	}
+	return p
+}
+
+func isRetryable(err error) bool {
+	msg := err.Error()
+	if strings.Contains(msg, "403") || strings.Contains(msg, "401") ||
+		strings.Contains(msg, "404") || strings.Contains(msg, "405") {
+		return false
+	}
+	retryable := []string{"unexpected EOF", "connection reset", "connection refused",
+		"timeout", "TLS handshake", "no such host", "dial tcp", "broken pipe", "i/o timeout"}
+	for _, s := range retryable {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
@@ -116,69 +142,103 @@ func (p *Puller) Pull(
 					return
 				}
 
-				layerCtx, cancel := context.WithTimeout(ctx, p.layerTimeout)
-				defer cancel()
-
-				rc, err := t.OpenLayer(layerCtx)
-				if err != nil {
-					sendEvent(ctx, ch, PullEvent{
-						Index: t.Index, Digest: t.DigestHex,
-						Err: fmt.Errorf("open layer: %w", err), Status: "error",
-					})
-					return
-				}
-				defer rc.Close()
-
-				f, err := os.Create(cacheFile)
-				if err != nil {
-					sendEvent(ctx, ch, PullEvent{
-						Index: t.Index, Digest: t.DigestHex,
-						Err: fmt.Errorf("create cache: %w", err), Status: "error",
-					})
-					return
-				}
-				defer f.Close()
-
-				buf := make([]byte, 64*1024)
-				var written int64
-				lastReport := time.Now()
-
-				for {
-					n, readErr := rc.Read(buf)
-					if n > 0 {
-						if _, werr := f.Write(buf[:n]); werr != nil {
-							os.Remove(cacheFile)
-							sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Err: fmt.Errorf("write cache: %w", werr), Status: "error",
-							})
+				var lastErr error
+				for attempt := 0; attempt <= p.maxRetries; attempt++ {
+					if attempt > 0 {
+						if !isRetryable(lastErr) {
+							break
+						}
+						backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(backoff):
+						}
+						os.Remove(cacheFile)
+						if !sendEvent(ctx, ch, PullEvent{
+							Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
+						}) {
 							return
 						}
-						written += int64(n)
-						if time.Since(lastReport) > 200*time.Millisecond {
-							sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Bytes: written, Total: t.Size, Status: "downloading",
-							})
-							lastReport = time.Now()
-						}
 					}
-					if readErr == io.EOF {
-						break
+
+					layerCtx, cancel := context.WithTimeout(ctx, p.layerTimeout)
+					rc, openErr := t.OpenLayer(layerCtx)
+					if openErr != nil {
+						cancel()
+						lastErr = openErr
+						continue
 					}
-					if readErr != nil {
-						os.Remove(cacheFile)
+
+					f, createErr := os.Create(cacheFile)
+					if createErr != nil {
+						rc.Close()
+						cancel()
 						sendEvent(ctx, ch, PullEvent{
 							Index: t.Index, Digest: t.DigestHex,
-							Err: fmt.Errorf("read layer: %w", readErr), Status: "error",
+							Err: fmt.Errorf("create cache: %w", createErr), Status: "error",
 						})
 						return
 					}
+
+					buf := make([]byte, 64*1024)
+					var written int64
+					lastReport := time.Now()
+					readFailed := false
+
+					for {
+						n, readErr := rc.Read(buf)
+						if n > 0 {
+							if _, werr := f.Write(buf[:n]); werr != nil {
+								rc.Close()
+								f.Close()
+								cancel()
+								os.Remove(cacheFile)
+								sendEvent(ctx, ch, PullEvent{
+									Index: t.Index, Digest: t.DigestHex,
+									Err: fmt.Errorf("write cache: %w", werr), Status: "error",
+								})
+								return
+							}
+							written += int64(n)
+							if time.Since(lastReport) > 200*time.Millisecond {
+								sendEvent(ctx, ch, PullEvent{
+									Index: t.Index, Digest: t.DigestHex,
+									Bytes: written, Total: t.Size, Status: "downloading",
+								})
+								lastReport = time.Now()
+							}
+						}
+						if readErr == io.EOF {
+							break
+						}
+						if readErr != nil {
+							lastErr = readErr
+							readFailed = true
+							break
+						}
+					}
+
+					rc.Close()
+					f.Close()
+					cancel()
+
+					if readFailed {
+						os.Remove(cacheFile)
+						continue
+					}
+
+					sendEvent(ctx, ch, PullEvent{
+						Index: t.Index, Digest: t.DigestHex,
+						Bytes: t.Size, Total: t.Size, Status: "done",
+					})
+					return
 				}
 
 				sendEvent(ctx, ch, PullEvent{
 					Index: t.Index, Digest: t.DigestHex,
-					Bytes: t.Size, Total: t.Size, Status: "done",
+					Err: fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
+					Status: "error",
 				})
 			}(task)
 		}

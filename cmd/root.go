@@ -32,6 +32,7 @@ var (
 	cacheDir    string
 	timeoutMin  int
 	layerTimeoutMin int
+	retryCount  int
 )
 
 var rootCmd = &cobra.Command{
@@ -121,7 +122,8 @@ Supported keys:
   insecure-registries Comma-separated registry hostnames
   parallelism         Number of parallel downloads (default: 4)
   layer-timeout       Per-layer download timeout in minutes (default: 30)
-  timeout             Overall operation timeout in minutes (default: 0 = no limit)`,
+  timeout             Overall operation timeout in minutes (default: 0 = no limit)
+  retry               Number of retries on network errors (default: 2)`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -164,8 +166,14 @@ Supported keys:
 				return fmt.Errorf("timeout must be 0 or a positive integer")
 			}
 			cfg.Timeout = n
+		case "retry":
+			n := 0
+			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+				return fmt.Errorf("retry must be 0 or a positive integer")
+			}
+			cfg.Retry = n
 		default:
-			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout)", key)
+			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout, retry)", key)
 		}
 		return cfg.Save()
 	},
@@ -184,6 +192,7 @@ var configListCmd = &cobra.Command{
 		data += fmt.Sprintf("Parallelism: %d\n", cfg.Parallelism)
 		data += fmt.Sprintf("Layer Timeout: %d min\n", cfg.LayerTimeout)
 		data += fmt.Sprintf("Timeout: %d min\n", cfg.Timeout)
+		data += fmt.Sprintf("Retry: %d\n", cfg.Retry)
 		_, err = fmt.Print(data)
 		return err
 	},
@@ -224,6 +233,7 @@ func init() {
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (OS-specific default: %LOCALAPPDATA%/imgp/cache, ~/.cache/imgp, ~/Library/Caches/imgp)")
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes")
+	saveCmd.Flags().IntVar(&retryCount, "retry", 2, "Number of retries on network errors (0 = no retry)")
 }
 
 func cmdCacheDir() string {
@@ -257,6 +267,13 @@ func runSave(cmd *cobra.Command, args []string) error {
 	to := timeoutMin
 	if to == 0 && cfg.Timeout > 0 {
 		to = cfg.Timeout
+	}
+
+	rt := cfg.Retry
+	if retryCount > 0 {
+		rt = retryCount
+	} else if retryCount == 0 && cfg.Retry == 0 {
+		rt = 2
 	}
 
 	targetPlatform := platform
@@ -334,7 +351,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt) * time.Minute)
+	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt)*time.Minute).WithRetry(rt)
 
 	ctx := cmd.Context()
 	if to > 0 {

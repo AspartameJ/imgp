@@ -21,6 +21,7 @@ type Config struct {
 	Parallelism       int                 `json:"parallelism"`
 	LayerTimeout      int                 `json:"layer_timeout,omitempty"`
 	Timeout           int                 `json:"timeout,omitempty"`
+	Retry             int                 `json:"retry,omitempty"`
 
 	configPath string
 }
