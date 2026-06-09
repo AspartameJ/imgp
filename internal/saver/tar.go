@@ -109,7 +109,10 @@ func Export(
 	cachedLayers := make(map[v1.Hash]partial.CompressedLayer)
 
 	for _, l := range layers {
-		digest, _ := l.Digest()
+		digest, err := l.Digest()
+		if err != nil {
+			return fmt.Errorf("get layer digest: %w", err)
+		}
 		cacheFile := cachePathFn(digest.Hex)
 
 		cl, err := BuildLayer(l, cacheFile)
@@ -131,19 +134,35 @@ func Export(
 		return fmt.Errorf("rebuild image from cache: %w", err)
 	}
 
-	f, err := os.Create(outputPath)
+	tmpPath := outputPath + ".tmp"
+	f, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("create output file: %w", err)
 	}
-	defer f.Close()
 
 	progressCh := make(chan v1.Update, 100)
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		for update := range progressCh {
 			progressFn(update.Complete, update.Total)
 		}
 	}()
-	defer close(progressCh)
 
-	return tarball.Write(ref, v1Img, f, tarball.WithProgress(progressCh))
+	writeErr := tarball.Write(ref, v1Img, f, tarball.WithProgress(progressCh))
+	f.Close()
+	close(progressCh)
+	<-progressDone
+
+	if writeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("write tar: %w", writeErr)
+	}
+
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename output: %w", err)
+	}
+
+	return nil
 }

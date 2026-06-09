@@ -219,13 +219,19 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	tasks := make([]puller.LayerTask, len(imgLayers))
 	for i, l := range imgLayers {
-		digest, _ := l.Digest()
-		size, _ := l.Size()
-		idx, dHex, sz := i, digest.Hex, size
-		tasks[idx] = puller.LayerTask{
-			Index:     idx,
+		digest, err := l.Digest()
+		if err != nil {
+			return fmt.Errorf("get layer %d digest: %w", i, err)
+		}
+		size, err := l.Size()
+		if err != nil {
+			return fmt.Errorf("get layer %d size: %w", i, err)
+		}
+		dHex := digest.Hex
+		tasks[i] = puller.LayerTask{
+			Index:     i,
 			DigestHex: dHex,
-			Size:      sz,
+			Size:      size,
 			OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
 				return layerFetcher(ctx, dHex)
 			},

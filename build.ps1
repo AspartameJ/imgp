@@ -24,12 +24,12 @@ foreach ($os in $targets) {
         $env:GOARCH = $arch
         $env:CGO_ENABLED = 0
         go build -o "bin/$name" .
-        if ($LASTEXITCODE -eq 0) {
-            $size = (Get-Item "bin/$name").Length
-            Write-Host "  OK  $([math]::Round($size/1KB, 1)) KB" -ForegroundColor Cyan
-        } else {
-            Write-Host "  FAILED" -ForegroundColor Red
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAILED: $name" -ForegroundColor Red
+            exit 1
         }
+        $size = (Get-Item "bin/$name").Length
+        Write-Host "  OK  $([math]::Round($size/1KB, 1)) KB" -ForegroundColor Cyan
     }
 }
 
