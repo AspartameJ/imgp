@@ -225,6 +225,8 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	guiProgress = pullProgress{progressData: progressData{Phase: "starting"}}
 
 	go func() {
+		ctx := context.Background()
+
 		cfg, err := config.Load()
 		if err != nil {
 			guiProgress.setError(fmt.Sprintf("load config: %v", err))
@@ -245,7 +247,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 			outPath = fmt.Sprintf("%s_%s.tar", n, p)
 		}
 
-		img, ref, err := client.FetchImage(r.Context(), req.Image, plat)
+		img, ref, err := client.FetchImage(ctx, req.Image, plat)
 		if err != nil {
 			guiProgress.setError(fmt.Sprintf("fetch image: %v", err))
 			return
@@ -284,7 +286,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		guiProgress.initLayers(len(tasks), totalBytes)
 
 		pl := puller.NewPuller(cd)
-		eventCh, err := pl.Pull(r.Context(), tasks, 4)
+		eventCh, err := pl.Pull(ctx, tasks, 4)
 		if err != nil {
 			guiProgress.setError(fmt.Sprintf("start pull: %v", err))
 			return
