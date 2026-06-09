@@ -1,6 +1,5 @@
 param(
-    [ValidateSet("windows", "linux", "darwin", "all")]
-    [string]$Target = "all"
+    [switch]$All = $false
 )
 
 $arches = @{
@@ -9,10 +8,13 @@ $arches = @{
     darwin  = @("amd64", "arm64")
 }
 
-if ($Target -eq "all") {
+if ($All) {
     $targets = $arches.Keys
 } else {
-    $targets = @($Target)
+    $goos = if ($env:GOOS) { $env:GOOS } else { "windows" }
+    $goarch = if ($env:GOARCH) { $env:GOARCH } else { "amd64" }
+    $targets = @($goos)
+    $arches[$goos] = @($goarch)
 }
 
 foreach ($os in $targets) {
