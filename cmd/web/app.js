@@ -89,6 +89,7 @@ function updateProgress(data) {
   }
 
   if (data.phase === 'error') {
+    exportDiv.style.display = 'none';
     showError(data.error || '下载失败');
     return;
   }
@@ -98,6 +99,9 @@ function updateProgress(data) {
     document.querySelector('.btn-primary').textContent = '▶ 开始下载';
     document.getElementById('cancelBtn').style.display = 'none';
     if (eventSource) eventSource.close();
+    exportDiv.style.display = 'none';
+    layerList.innerHTML = '';
+    header.innerHTML = '';
     doneBox.style.display = 'block';
     doneBox.innerHTML = '✅ 下载完成！已保存到 ' + data.outputPath +
       ' <button class="btn btn-success" onclick="openFileLocation(\'' + data.outputPath.replace(/'/g, "\\'") + '\')" style="margin-left:8px;padding:4px 12px;font-size:12px">📂 打开位置</button>';
