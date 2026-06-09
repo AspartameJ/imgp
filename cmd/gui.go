@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -155,14 +157,27 @@ func init() {
 }
 
 func runGUI(cmd *cobra.Command, args []string) error {
+	openBrowser("http://127.0.0.1:" + guiPort)
 	return serveGUI()
 }
 
 func StartGUI() {
+	openBrowser("http://127.0.0.1:" + guiPort)
 	err := serveGUI()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "GUI error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func openBrowser(url string) {
+	switch runtime.GOOS {
+	case "windows":
+		exec.Command("cmd", "/c", "start", url).Start()
+	case "darwin":
+		exec.Command("open", url).Start()
+	default:
+		exec.Command("xdg-open", url).Start()
 	}
 }
 
