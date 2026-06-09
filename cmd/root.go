@@ -182,6 +182,7 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
+	rootCmd.AddCommand(guiCmd)
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheInfoCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
