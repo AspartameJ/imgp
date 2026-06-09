@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -164,7 +163,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	targetPlatform := platform
 	if targetPlatform == "" {
-		targetPlatform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+		targetPlatform = "linux/amd64"
 	} else {
 		parts := strings.Split(targetPlatform, "/")
 		if len(parts) < 2 || len(parts) > 3 {

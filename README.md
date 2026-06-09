@@ -61,7 +61,7 @@ imgp save [镜像名] [参数]
 | 参数 | 说明 |
 |---|---|
 | `-o, --output` | 导出 tar 文件路径 |
-| `-p, --platform` | 目标平台，如 `linux/arm64` |
+| `-p, --platform` | 目标平台，如 `linux/arm64`（默认 `linux/amd64`） |
 | `--username` | Registry 用户名 |
 | `--password` | Registry 密码（建议用 `--password-env`） |
 | `--password-env` | 密码环境变量名（默认 `IMG_REGISTRY_PASSWORD`） |
@@ -77,7 +77,7 @@ imgp save [镜像名] [参数]
 ```json
 {
   "mirror_map": {
-    "docker.io": ["docker.nju.edu.cn"],
+    "docker.io": ["docker.m.daocloud.io"],
     "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
@@ -92,7 +92,7 @@ imgp save [镜像名] [参数]
 imgp config list
 
 # 修改镜像加速映射
-imgp config set mirror-map "docker.io=docker.nju.edu.cn,quay.io=quay.mirrors.daocloud.io"
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,quay.io=quay.mirrors.daocloud.io"
 
 # 一个 registry 配多个镜像，用 | 分隔
 imgp config set mirror-map "docker.io=mirror1|mirror2"

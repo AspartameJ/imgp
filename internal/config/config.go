@@ -25,7 +25,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		MirrorMap: map[string][]string{
-			"docker.io": {"docker.nju.edu.cn"},
+			"docker.io": {"docker.m.daocloud.io"},
 			"quay.io":   {"quay.mirrors.daocloud.io"},
 			"gcr.io":    {"gcr.mirrors.daocloud.io"},
 		},

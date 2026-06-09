@@ -1,6 +1,6 @@
 {
   "mirror_map": {
-    "docker.io": ["docker.daocloud.io"],
+    "docker.io": ["docker.m.daocloud.io"],
     "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },

@@ -58,7 +58,7 @@ imgp save [image] [flags]
 | Flag | Description |
 |---|---|
 | `-o, --output` | Output tar file path |
-| `-p, --platform` | Target platform (e.g. `linux/arm64`) |
+| `-p, --platform` | Target platform (default `linux/amd64`, e.g. `linux/arm64`) |
 | `--username` | Registry username |
 | `--password` | Registry password (use `--password-env` for security) |
 | `--password-env` | Env var name for password (default `IMG_REGISTRY_PASSWORD`) |
@@ -74,7 +74,7 @@ Configuration is stored in `imgp.json` next to the binary. Defaults:
 ```json
 {
   "mirror_map": {
-    "docker.io": ["docker.nju.edu.cn"],
+    "docker.io": ["docker.m.daocloud.io"],
     "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
@@ -89,7 +89,7 @@ Edit via CLI:
 imgp config list
 
 # Set mirror mapping
-imgp config set mirror-map "docker.io=docker.nju.edu.cn,quay.io=quay.mirrors.daocloud.io"
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,quay.io=quay.mirrors.daocloud.io"
 
 # Multiple mirrors per registry (separated by |)
 imgp config set mirror-map "docker.io=mirror1|mirror2"
