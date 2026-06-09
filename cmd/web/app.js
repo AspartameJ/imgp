@@ -74,11 +74,6 @@ function updateProgress(data) {
     if (eventSource) eventSource.close();
     doneBox.style.display = 'block';
     doneBox.textContent = '✅ 下载完成！已保存到 ' + data.outputPath;
-function stopServer() {
-  if (!confirm('确定停止服务器？')) return;
-  fetch('/api/shutdown', { method: 'POST' });
-}
-
 loadCacheInfo();
     return;
   }
