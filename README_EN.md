@@ -2,41 +2,43 @@ English | [中文](README.md)
 
 # imgp
 
-Cross-platform Docker image pull and save tool. Supports multi-architecture images, mirror acceleration, parallel downloads, and resume. No Docker daemon required.
+**imgp** is a cross-platform Docker image pull and save tool. It pulls images from registries (Docker Hub, quay.io, gcr.io, etc.) and exports them as standard `.tar` files that can be imported with `docker load` — no Docker daemon required.
 
-## Features
+## Common Use Cases
 
-| Feature | Description |
+| Scenario | How |
 |---|---|
-| **Multi-architecture** | Pull images for any platform (`linux/amd64`, `linux/arm64`, `windows/amd64`) |
-| **Mirror acceleration** | Built-in mirrors for docker.io, gcr.io |
-| **Parallel downloads** | Concurrent layer pulling for faster downloads |
-| **Resume support** | Downloaded layers are cached and skipped on retry |
-| **Detailed progress** | Per-layer progress bars with real-time updates |
-| **Private registries** | Username/password and token authentication |
-| **Zero dependencies** | Single binary, pure Go, no Docker installation needed |
-| **Cross-platform** | Windows, Linux, and macOS |
-
-## Quick Start
-
-```bash
-# Pull and save hello-world
-imgp save hello-world:latest -o hello-world.tar
-
-# Specify arm64 architecture
-imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
-
-# Load into Docker
-docker load -i hello-world.tar
-```
+| Download an image on a machine without Docker | `imgp save nginx:latest -o nginx.tar`, then `docker load` on the target machine |
+| Docker Hub is slow in your region | Built-in mirror acceleration routes through fast mirrors automatically |
+| Need an arm64 image for Raspberry Pi | `imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar` |
+| Private registry requires login | `imgp save private/app:latest --username user --password-env` |
+| Download interrupted halfway | Cached layers resume automatically — no re-download needed |
 
 ## Install
 
-### Download binary
+### Option 1: Download binary (recommended)
 
-Download the pre-built binary from the [Releases page](https://gitcode.com/DonaldTom/imgp/releases) and place it in your `PATH`.
+Download from the [Releases page](https://gitcode.com/DonaldTom/imgp/releases):
 
-### From source
+| Platform | File |
+|---|---|
+| Windows (64-bit) | `imgp-windows-amd64.exe` |
+| Windows (ARM) | `imgp-windows-arm64.exe` |
+| Linux (64-bit) | `imgp-linux-amd64` |
+| Linux (ARM64) | `imgp-linux-arm64` |
+| macOS (Intel) | `imgp-darwin-amd64` |
+| macOS (Apple Silicon) | `imgp-darwin-arm64` |
+
+**Linux / macOS**:
+
+```bash
+chmod +x imgp-linux-amd64
+sudo mv imgp-linux-amd64 /usr/local/bin/imgp
+```
+
+**Windows**: Place the `.exe` in any directory, or better, in a directory listed in your `PATH` environment variable (e.g., `C:\Users\yourname\go\bin\`).
+
+### Option 2: Install via Go
 
 ```bash
 go install gitcode.com/DonaldTom/imgp@latest
@@ -47,29 +49,64 @@ go install gitcode.com/DonaldTom/imgp@latest
 > go env -w GOPROXY=https://goproxy.cn,direct
 > ```
 
-## Usage
+### Verify
+
+```bash
+imgp version
+```
+
+## Quick Start
+
+```bash
+# Pull and save hello-world (a tiny test image)
+imgp save hello-world:latest -o hello-world.tar
+
+# Load into Docker to verify
+docker load -i hello-world.tar
+```
+
+### Specify a platform
+
+Pull the arm64 version:
+
+```bash
+imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
+```
+
+### Private registry
+
+```bash
+# Password from environment variable (recommended)
+export IMG_REGISTRY_PASSWORD=your_password
+imgp save private.registry.com/myapp:latest --username user
+
+# Direct password (not recommended — visible in process listings)
+imgp save private.registry.com/myapp:latest --username user --password your_password
+```
+
+## Commands
+
+### `imgp save [image]` — Pull and export
 
 ```bash
 imgp save [image] [flags]
 ```
 
-### Flags
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output` | `image_platform.tar` | Output tar file path |
+| `-p, --platform` | `linux/amd64` | Target platform (e.g. `linux/arm64`, `windows/amd64`) |
+| `--username` | (empty) | Registry username |
+| `--password` | (empty) | Registry password (use `--password-env`) |
+| `--password-env` | `IMG_REGISTRY_PASSWORD` | Env var name for password |
+| `--insecure` | false | Allow non-TLS connections |
+| `-P, --parallel` | 4 (from config) | Number of parallel layer downloads |
+| `--no-cache` | false | Ignore cache, force re-download |
+| `--cache-dir` | OS-specific (see Cache) | Custom cache directory |
+| `-q, --quiet` | false | Output only the tar path |
+| `-h, --help` | - | Show help |
 
-| Flag | Description |
-|---|---|
-| `-o, --output` | Output tar file path |
-| `-p, --platform` | Target platform (default `linux/amd64`, e.g. `linux/arm64`) |
-| `--username` | Registry username |
-| `--password` | Registry password (use `--password-env` for security) |
-| `--password-env` | Env var name for password (default `IMG_REGISTRY_PASSWORD`) |
-| `--insecure` | Allow insecure registry connections |
-| `-P, --parallel` | Parallel downloads (default: 4) |
-| `--no-cache` | Ignore cached layers, force re-download |
-| `--cache-dir` | Custom cache directory (see Cache Management for defaults) |
-| `-q, --quiet` | Quiet mode, output only the tar path |
-| `-h, --help` | Show help |
-
-### Cache Management
+### `imgp cache` — Cache management
 
 ```bash
 # Show cache usage
@@ -79,23 +116,37 @@ imgp cache info
 imgp cache clear
 ```
 
-Default cache locations by OS:
+Default cache locations:
 
-| Platform | Path |
+| OS | Path |
 |---|---|
 | Windows | `%LOCALAPPDATA%\imgp\cache` |
 | Linux | `~/.cache/imgp` or `$XDG_CACHE_HOME/imgp` |
 | macOS | `~/Library/Caches/imgp` |
 
-Custom directory via `--cache-dir`:
+Custom directory:
 
 ```bash
-imgp save -o hello-world.tar hello-world:latest --cache-dir /tmp/my-cache
+imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ```
 
-### Configuration
+### `imgp config` — Configuration
 
-Configuration is stored in `imgp.json` next to the binary. Defaults:
+```bash
+# View current config
+imgp config list
+
+# Set mirror map
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
+
+# Set parallelism
+imgp config set parallelism 8
+
+# Add insecure registries (allow HTTP)
+imgp config set insecure-registries "192.168.1.100:5000"
+```
+
+Config file `imgp.json` is stored next to the binary. Defaults:
 
 ```json
 {
@@ -107,34 +158,21 @@ Configuration is stored in `imgp.json` next to the binary. Defaults:
 }
 ```
 
-Edit via CLI:
+## Mirror Acceleration
+
+`mirror_map` tells imgp which mirror to use for each registry. When pulling `docker.io/library/nginx:latest`, imgp first tries `docker.m.daocloud.io/library/nginx:latest`. If the mirror fails, it falls back to the original `index.docker.io`.
+
+Supported mirrors:
+
+| Registry | Mirror | Provided by |
+|---|---|---|
+| `docker.io` | `docker.m.daocloud.io` | DaoCloud |
+| `gcr.io` | `gcr.mirrors.daocloud.io` | DaoCloud |
+
+Multiple mirrors per registry (separated by `|`):
 
 ```bash
-# View config
-imgp config list
-
-# Set mirror mapping
-imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
-
-# Multiple mirrors per registry (separated by |)
-imgp config set mirror-map "docker.io=mirror1|mirror2"
-
-# Set parallelism
-imgp config set parallelism 8
-```
-
-### Authentication
-
-```bash
-# From environment variable (recommended)
-export IMG_REGISTRY_PASSWORD=your_password
-imgp save private/image:latest --username user
-
-# Direct password (not recommended – visible in process listings)
-imgp save private/image:latest --username user --password your_password
-
-# Or configure in imgp.json
-# See imgp.json.example for details
+imgp config set mirror-map "docker.io=mirror1.example.com|mirror2.example.com"
 ```
 
 ## Demo
@@ -150,18 +188,40 @@ Image manifest fetched, downloading layers...
 Done: hello-world:latest saved to hello-world.tar
 ```
 
-## Build from source
+With multiple layers:
 
-```powershell
-# Windows (build all platforms)
-.\build.ps1
-
-# Build Windows only
-.\build.ps1 -Target windows
+```
+  layers: [2/3] 87.4% | 10.3 MB / 11.8 MB
+    ✓ sha256:9f1abecd  100%
+    ✓ sha256:c2caafd5  100%
+    ◌ sha256:b7e1cbd2  86% 9.2 MB / 10.7 MB
 ```
 
+- `✓` = done
+- `◌` = downloading
+- `·` = waiting
+
+## Build from source
+
+### Windows
+
+```powershell
+# Build current platform only (fast, default)
+.\build.ps1
+
+# Build all 6 platforms (for release)
+.\build.ps1 -All
+```
+
+Output goes to `bin\` directory.
+
+### Linux / macOS
+
 ```bash
-# Linux / macOS
+# Current platform
+go build -o imgp .
+
+# Cross-compile
 GOOS=linux GOARCH=amd64 go build -o imgp-linux-amd64 .
 GOOS=linux GOARCH=arm64 go build -o imgp-linux-arm64 .
 GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
@@ -169,20 +229,77 @@ GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
 
 ## How it works
 
-1. **Parse** — parse image reference (e.g. `quay.io/prometheus/node-exporter:v1.11.1`)
-2. **Mirror** — apply `mirror_map` to replace the registry address
-3. **Resolve** — fetch the manifest list and resolve the target platform
-4. **Download** — download layers in parallel to a local cache
-5. **Export** — assemble cached layers into a standard Docker tar archive
+```
+Input: imgp save quay.io/prometheus/node-exporter:v1.11.1 -o out.tar
 
-No Docker daemon is required at any step.
+1. Parse image reference
+   → registry = quay.io
+   → repository = prometheus/node-exporter
+   → tag = v1.11.1
+
+2. Apply mirror map
+   → look up mirror_map["quay.io"]
+   → try quay.mirrors.daocloud.io first
+   → fall back to original quay.io on failure
+
+3. Fetch manifest
+   → get manifest list (multi-arch)
+   → match target platform (default: linux/amd64)
+
+4. Download layers in parallel
+   → each layer gets its own HTTP connection
+   → default 4 concurrent downloads
+   → real-time progress display
+
+5. Export tar
+   → assemble standard Docker tar format
+   → write to out.tar
+
+No Docker daemon required
+```
+
+## FAQ
+
+### Q: How is this different from `docker pull` + `docker save`?
+
+`docker pull` requires Docker daemon, which on Windows needs WSL2 or Hyper-V. imgp is a single binary with zero dependencies — download and run.
+
+### Q: How to use the exported tar?
+
+```bash
+scp hello-world.tar user@remote-server:~/
+ssh user@remote-server
+docker load -i hello-world.tar
+```
+
+### Q: Download was interrupted. What now?
+
+Layers already downloaded are cached. Run the same `imgp save` command again and it will resume. Use `--no-cache` to force a full re-download.
+
+### Q: What platform values are supported?
+
+Format: `os/arch` or `os/arch/variant`
+
+| Platform | Value |
+|---|---|
+| Linux x86-64 | `linux/amd64` (default) |
+| Linux ARM64 | `linux/arm64` |
+| Linux ARMv8 | `linux/arm64/v8` |
+| Windows x86-64 | `windows/amd64` |
+| Windows ARM64 | `windows/arm64` |
+| macOS Intel | `darwin/amd64` |
+| macOS Apple Silicon | `darwin/arm64` |
+
+### Q: Where is `imgp.json`?
+
+In the same directory as the `imgp` binary. Run `which imgp` (Linux/macOS) or `where.exe imgp` (Windows) to find it.
 
 ## Notes
 
-- **Cache directory** — OS-specific (Windows `%LOCALAPPDATA%`, Linux `~/.cache`, macOS `~/Library/Caches`). Use `imgp cache info` to check usage, `imgp cache clear` to clean up.
-- **Mirror format** — do not include `https://` prefix (e.g. `docker.daocloud.io`)
-- **Platform format** — `os/arch` or `os/arch/variant` (e.g. `linux/amd64`, `linux/arm64/v8`)
-- **Digest references** — `image@sha256:...` format does not trigger auto-mirroring
+- **Mirror format**: no `https://` prefix needed (e.g., `docker.m.daocloud.io`)
+- **Multiple mirrors**: separate with `|` (e.g., `"docker.io=mirror1|mirror2"`)
+- **Digest references**: `image@sha256:...` does not trigger mirror acceleration
+- **Config changes**: `imgp config set` takes effect immediately
 
 ## License
 
