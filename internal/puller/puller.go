@@ -27,18 +27,27 @@ type LayerTask struct {
 }
 
 type Puller struct {
-	cacheDir string
-	noCache  bool
+	cacheDir     string
+	noCache      bool
+	layerTimeout time.Duration
 }
 
 func NewPuller(cacheDir string) *Puller {
 	return &Puller{
-		cacheDir: cacheDir,
+		cacheDir:     cacheDir,
+		layerTimeout: 30 * time.Minute,
 	}
 }
 
 func (p *Puller) WithNoCache(v bool) *Puller {
 	p.noCache = v
+	return p
+}
+
+func (p *Puller) WithLayerTimeout(d time.Duration) *Puller {
+	if d > 0 {
+		p.layerTimeout = d
+	}
 	return p
 }
 
@@ -107,7 +116,7 @@ func (p *Puller) Pull(
 					return
 				}
 
-				layerCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+				layerCtx, cancel := context.WithTimeout(ctx, p.layerTimeout)
 				defer cancel()
 
 				rc, err := t.OpenLayer(layerCtx)

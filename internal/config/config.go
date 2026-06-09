@@ -19,6 +19,8 @@ type Config struct {
 	Auths             map[string]AuthConfig `json:"auths,omitempty"`
 	InsecureRegistries []string           `json:"insecure_registries,omitempty"`
 	Parallelism       int                 `json:"parallelism"`
+	LayerTimeout      int                 `json:"layer_timeout,omitempty"`
+	Timeout           int                 `json:"timeout,omitempty"`
 
 	configPath string
 }
