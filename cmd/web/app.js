@@ -77,11 +77,19 @@ function updateProgress(data) {
     doneBox.style.display = 'block';
     doneBox.textContent = '✅ 下载完成！已保存到 ' + data.outputPath;
 function cancelDownload() {
-  if (!confirm('确定取消下载？')) return;
+  var btn = document.getElementById('cancelBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 取消中...';
+  if (eventSource) eventSource.close();
   fetch('/api/cancel', { method: 'POST' }).then(function() {
-    document.getElementById('cancelBtn').style.display = 'none';
-    if (eventSource) eventSource.close();
-    showError('用户取消');
+    btn.style.display = 'none';
+    document.getElementById('errorBox').style.display = 'block';
+    document.getElementById('errorBox').textContent = '❌ 用户取消';
+    document.querySelector('.btn-primary').disabled = false;
+    document.querySelector('.btn-primary').textContent = '▶ 开始下载';
+  }).catch(function() {
+    btn.disabled = false;
+    btn.textContent = '✕ 取消';
   });
 }
 
