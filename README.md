@@ -45,6 +45,11 @@ imgp save -o nginx.tar nginx:latest
 go install gitcode.com/DonaldTom/imgp@latest
 ```
 
+> 国内用户如遇到网络问题，请设置 Go proxy：
+> ```bash
+> go env -w GOPROXY=https://goproxy.cn,direct
+> ```
+
 ## 使用说明
 
 ```bash

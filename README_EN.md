@@ -42,6 +42,11 @@ Download the pre-built binary from the [Releases page](https://gitcode.com/Donal
 go install gitcode.com/DonaldTom/imgp@latest
 ```
 
+> For users in China who encounter network issues, set Go proxy:
+> ```bash
+> go env -w GOPROXY=https://goproxy.cn,direct
+> ```
+
 ## Usage
 
 ```bash
