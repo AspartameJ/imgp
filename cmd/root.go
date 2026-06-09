@@ -309,6 +309,14 @@ func runSave(cmd *cobra.Command, args []string) error {
 	// Create registry client
 	client := registry.NewClient(cfg).WithAuth(username, pass).WithInsecure(insecure)
 
+	// Apply overall timeout to entire operation (fetch + pull)
+	ctx := cmd.Context()
+	if to > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(to)*time.Minute)
+		defer cancel()
+	}
+
 	// Phase 1: Pull
 	if !quiet {
 		if isTerminal() {
@@ -318,7 +326,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	img, ref, err := client.FetchImage(cmd.Context(), image, targetPlatform)
+	img, ref, err := client.FetchImage(ctx, image, targetPlatform)
 	if err != nil {
 		return fmt.Errorf("fetch image: %w", err)
 	}
@@ -360,13 +368,6 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt)*time.Minute).WithRetry(rt)
-
-	ctx := cmd.Context()
-	if to > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(to)*time.Minute)
-		defer cancel()
-	}
 
 	eventCh, err := pl.Pull(ctx, tasks, par)
 	if err != nil {
@@ -454,7 +455,6 @@ type progressDisplay struct {
 
 func colorGreen(s string) string { return "\033[32m" + s + "\033[0m" }
 func colorRed(s string) string   { return "\033[31m" + s + "\033[0m" }
-func colorBlue(s string) string  { return "\033[34m" + s + "\033[0m" }
 func colorCyan(s string) string  { return "\033[36m" + s + "\033[0m" }
 func colorYellow(s string) string { return "\033[33m" + s + "\033[0m" }
 
