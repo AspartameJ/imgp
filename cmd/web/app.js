@@ -21,7 +21,10 @@ function startDownload() {
   progressSection.style.display = 'block';
   document.getElementById('errorBox').style.display = 'none';
   document.getElementById('doneBox').style.display = 'none';
-  document.getElementById('cancelBtn').style.display = 'inline';
+  var cancelBtn = document.getElementById('cancelBtn');
+  cancelBtn.disabled = false;
+  cancelBtn.textContent = '✕ 取消';
+  cancelBtn.style.display = 'inline';
 
   fetch('/api/save', {
     method: 'POST',
