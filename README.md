@@ -124,6 +124,8 @@ imgp save [镜像名] [参数]
 | `-P, --parallel` | 配置文件中设置，默认 4 | 同时下载的 layer 数量，网络好可以调大 |
 | `--no-cache` | false | 忽略本地缓存，强制重新下载所有 layer |
 | `--cache-dir` | 见缓存管理 | 指定缓存目录 |
+| `--timeout` | 0（无限制） | 整体超时（分钟），超时后自动终止 |
+| `--layer-timeout` | 30 | 每层下载超时（分钟），适合大镜像调大 |
 | `-q, --quiet` | false | 静默模式，只输出 tar 文件路径 |
 | `-h, --help` | - | 显示帮助 |
 
@@ -308,6 +310,21 @@ docker images
 ### Q: 下载中断了怎么办？
 
 下次对同一个镜像执行 `imgp save`，已下载的 layer 会自动跳过（断点续传）。如果想强制重下，加 `--no-cache`。
+
+### Q: 下载时间太长被终止了怎么办？
+
+网络慢或镜像大时可能触发超时。增大超时时间：
+
+```bash
+# 每层给 60 分钟，整体给 2 小时
+imgp save large-image:latest -o large.tar --layer-timeout 60 --timeout 120
+
+# 持久化到配置
+imgp config set layer-timeout 60
+imgp config set timeout 120
+```
+
+默认每层 30 分钟，整体无限制（0）。
 
 ### Q: `--platform` 支持哪些值？
 
