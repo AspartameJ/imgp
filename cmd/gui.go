@@ -192,6 +192,16 @@ func handleShutdown(w http.ResponseWriter, r *http.Request) {
 	os.Exit(0)
 }
 
+func handleOpenFile(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return
+	}
+	exec.Command("explorer", "/select,", req.Path).Start()
+}
+
 func handleCancel(w http.ResponseWriter, r *http.Request) {
 	if downloadCancel != nil {
 		downloadCancel()
@@ -214,6 +224,7 @@ func serveGUI() error {
 	mux.HandleFunc("/api/config", handleConfig)
 	mux.HandleFunc("/api/shutdown", handleShutdown)
 	mux.HandleFunc("/api/cancel", handleCancel)
+	mux.HandleFunc("/api/open-file", handleOpenFile)
 
 	addr := "127.0.0.1:" + guiPort
 	fmt.Printf("imgp GUI started at http://%s\n", addr)

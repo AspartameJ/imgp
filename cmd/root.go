@@ -38,7 +38,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "imgp",
 	Short:   "Cross-platform Docker image pull and save tool",
-	Version: "1.3.0",
+	Version: "1.4.0",
 }
 
 var saveCmd = &cobra.Command{
@@ -311,7 +311,11 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	// Phase 1: Pull
 	if !quiet {
-		fmt.Printf("Pulling %s (%s)\n", image, targetPlatform)
+		if isTerminal() {
+			fmt.Printf("%s %s (%s)\n", colorCyan("⟳ Pulling"), image, targetPlatform)
+		} else {
+			fmt.Printf("Pulling %s (%s)\n", image, targetPlatform)
+		}
 	}
 
 	img, ref, err := client.FetchImage(cmd.Context(), image, targetPlatform)
@@ -320,7 +324,11 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	if !quiet {
-		fmt.Println("Image manifest fetched, downloading layers...")
+		if isTerminal() {
+			fmt.Printf("%s\n", colorGreen("✓ Image manifest fetched, downloading layers..."))
+		} else {
+			fmt.Println("Image manifest fetched, downloading layers...")
+		}
 	}
 
 	layerFetcher := client.NewLayerFetcher(ref)
@@ -379,7 +387,11 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	// Phase 2: Export
 	if !quiet {
-		fmt.Printf("\nExporting to %s\n", outPath)
+		if isTerminal() {
+			fmt.Printf("\n%s\n", colorCyan("⟳ Exporting to ")+outPath)
+		} else {
+			fmt.Printf("\nExporting to %s\n", outPath)
+		}
 	}
 
 	cachePathFn := func(digest string) string {
@@ -410,7 +422,11 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	if !quiet {
-		fmt.Printf("\nDone: %s (%s) saved to %s\n", image, targetPlatform, outPath)
+		if isTerminal() {
+			fmt.Printf("\n%s %s (%s) saved to %s\n", colorGreen("✓ Done:"), image, targetPlatform, outPath)
+		} else {
+			fmt.Printf("\nDone: %s (%s) saved to %s\n", image, targetPlatform, outPath)
+		}
 	} else {
 		fmt.Println(outPath)
 	}
@@ -435,6 +451,12 @@ type progressDisplay struct {
 	total    int64
 	hasError bool
 }
+
+func colorGreen(s string) string { return "\033[32m" + s + "\033[0m" }
+func colorRed(s string) string   { return "\033[31m" + s + "\033[0m" }
+func colorBlue(s string) string  { return "\033[34m" + s + "\033[0m" }
+func colorCyan(s string) string  { return "\033[36m" + s + "\033[0m" }
+func colorYellow(s string) string { return "\033[33m" + s + "\033[0m" }
 
 func isTerminal() bool {
 	fi, _ := os.Stdout.Stat()
@@ -538,21 +560,21 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 					bar := renderBar(ls.current, ls.total, 30)
 					switch ls.status {
 					case "cached":
-						fmt.Printf("\033[2K\r    ✓ %s %s (cached)\n", shorten(ls.digest, 12), bar)
+						fmt.Printf("\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), colorGreen("(cached)"))
 					case "done":
-						fmt.Printf("\033[2K\r    ✓ %s %s\n", shorten(ls.digest, 12), bar)
+						fmt.Printf("\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), bar)
 					case "downloading":
-						fmt.Printf("\033[2K\r    ◌ %s %s %s/%s\n",
-							shorten(ls.digest, 12), bar,
+						fmt.Printf("\033[2K\r    %s %s %s %s/%s\n",
+							colorCyan("◌"), shorten(ls.digest, 12), bar,
 							formatBytes(ls.current), formatBytes(ls.total))
-				case "error":
-					msg := "download failed"
-					if ls.errMsg != "" {
-						msg = ls.errMsg
-					}
-					fmt.Printf("\033[2K\r    ✗ %s %s\n", shorten(ls.digest, 12), msg)
+					case "error":
+						msg := "download failed"
+						if ls.errMsg != "" {
+							msg = ls.errMsg
+						}
+						fmt.Printf("\033[2K\r    %s %s %s\n", colorRed("✗"), shorten(ls.digest, 12), colorRed(msg))
 					default:
-						fmt.Printf("\033[2K\r    · %s waiting...\n", shorten(ls.digest, 12))
+						fmt.Printf("\033[2K\r    %s %s waiting...\n", colorYellow("·"), shorten(ls.digest, 12))
 					}
 				}
 			}

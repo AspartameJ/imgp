@@ -4,6 +4,27 @@ window.addEventListener('beforeunload', function() {
   navigator.sendBeacon('/api/shutdown');
 });
 
+// Theme
+var currentTheme = localStorage.getItem('imgp-theme') || 'light';
+if (currentTheme === 'dark') {
+  document.documentElement.setAttribute('data-theme', 'dark');
+  document.querySelector('.theme-toggle').textContent = '☀️';
+}
+
+function toggleTheme() {
+  var btn = document.querySelector('.theme-toggle');
+  if (currentTheme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    btn.textContent = '☀️';
+    currentTheme = 'dark';
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    btn.textContent = '🌙';
+    currentTheme = 'light';
+  }
+  localStorage.setItem('imgp-theme', currentTheme);
+}
+
 function startDownload() {
   const image = document.getElementById('imageName').value.trim();
   if (!image) { alert('请输入镜像名'); return; }
@@ -78,25 +99,27 @@ function updateProgress(data) {
     document.getElementById('cancelBtn').style.display = 'none';
     if (eventSource) eventSource.close();
     doneBox.style.display = 'block';
-    doneBox.textContent = '✅ 下载完成！已保存到 ' + data.outputPath;
+    doneBox.innerHTML = '✅ 下载完成！已保存到 ' + data.outputPath +
+      ' <button class="btn btn-success" onclick="openFileLocation(\'' + data.outputPath.replace(/'/g, "\\'") + '\')" style="margin-left:8px;padding:4px 12px;font-size:12px">📂 打开位置</button>';
     loadCacheInfo();
     return;
   }
 
   if (data.phase === 'downloading') {
     const percent = data.totalBytes > 0 ? (data.doneBytes / data.totalBytes * 100).toFixed(1) : 0;
-    header.innerHTML = `<b>正在下载:</b> ${data.doneLayers}/${data.totalLayers} 层 | ${data.totalBytes > 0 ? percent + '% - ' + fmtSize(data.doneBytes) + ' / ' + fmtSize(data.totalBytes) : '准备中...'}`;
+    header.innerHTML = '<b>正在下载:</b> ' + data.doneLayers + '/' + data.totalLayers + ' 层 | ' +
+      (data.totalBytes > 0 ? percent + '% - ' + fmtSize(data.doneBytes) + ' / ' + fmtSize(data.totalBytes) : '准备中...');
 
-    let html = '';
+    var html = '';
     data.layers.forEach(function(l) {
       const pct = l.total > 0 ? (l.bytes / l.total * 100) : 0;
       const cls = l.status === 'done' ? 'done' : l.status === 'cached' ? 'cached' : l.status === 'downloading' ? 'downloading' : '';
       html += '<div class="progress-bar">';
-      html += '<span style="width:60px">' + shortenDigest(l.digest) + '</span>';
+      html += '<span style="width:60px;font-family:monospace;font-size:11px;color:var(--text-secondary)">' + shortenDigest(l.digest) + '</span>';
       html += '<div class="progress-track"><div class="progress-fill ' + cls + '" style="width:' + pct + '%"></div></div>';
       html += '<span class="progress-label">' + (l.status === 'waiting' ? '等待中' : l.total === 0 ? '' : pct.toFixed(0) + '%') + '</span>';
       if (l.status === 'downloading' && l.total > 0) {
-        html += '<span style="font-size:11px;color:#888;min-width:70px;text-align:right">' + fmtSize(l.bytes) + '/' + fmtSize(l.total) + '</span>';
+        html += '<span style="font-size:11px;color:var(--text-secondary);min-width:70px;text-align:right">' + fmtSize(l.bytes) + '/' + fmtSize(l.total) + '</span>';
       }
       html += '</div>';
     });
@@ -111,7 +134,7 @@ function updateProgress(data) {
       const pct = (data.exportBytes / data.exportTotal * 100).toFixed(0);
       exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><div class="progress-track"><div class="progress-fill downloading" style="width:' + pct + '%"></div></div><span class="progress-label">' + pct + '%</span></div>';
     } else {
-      exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><span style="color:#888;font-size:13px">准备中...</span></div>';
+      exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><span style="color:var(--text-secondary);font-size:13px">准备中...</span></div>';
     }
   }
 }
@@ -123,6 +146,14 @@ function showError(msg) {
   if (eventSource) eventSource.close();
   document.getElementById('errorBox').style.display = 'block';
   document.getElementById('errorBox').textContent = '❌ ' + msg;
+}
+
+function openFileLocation(path) {
+  fetch('/api/open-file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: path })
+  });
 }
 
 function formatBytes(b) {
@@ -187,7 +218,7 @@ function addMirrorRow(reg, mirror) {
   const tr = document.createElement('tr');
   tr.innerHTML = '<td><input type="text" class="cfg-reg" value="' + (reg || '') + '" placeholder="docker.io"></td>' +
     '<td><input type="text" class="cfg-mirror" value="' + (mirror || '') + '" placeholder="mirror.example.com"></td>' +
-    '<td><button onclick="this.parentElement.parentElement.remove()" style="color:#e74c3c;border:none;background:none;cursor:pointer">✕</button></td>';
+    '<td><button onclick="this.parentElement.parentElement.remove()" style="color:var(--danger);border:none;background:none;cursor:pointer;font-size:16px">×</button></td>';
   tbody.appendChild(tr);
 }
 
