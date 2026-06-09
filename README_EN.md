@@ -132,6 +132,29 @@ Custom directory:
 imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ```
 
+### `imgp gui` — Web GUI (gui branch)
+
+> Switch to the `gui` branch first:
+> ```bash
+> git checkout gui
+> go build -o imgp.exe .
+> ```
+
+```bash
+# Start GUI (default port 8080)
+imgp gui
+
+# Custom port
+imgp gui -P 9000
+```
+
+Features in the browser:
+
+- Enter image name, select platform, click download
+- Real-time per-layer progress bars
+- Add/remove mirror acceleration entries
+- View and clear cache
+
 ### `imgp config` — Configuration
 
 ```bash

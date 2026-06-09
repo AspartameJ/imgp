@@ -153,6 +153,29 @@ imgp cache clear
 imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ```
 
+### `imgp gui` — Web 图形界面（gui 分支）
+
+> 需要切换到 `gui` 分支：
+> ```bash
+> git checkout gui
+> go build -o imgp.exe .
+> ```
+
+```bash
+# 启动 GUI（默认端口 8080）
+imgp gui
+
+# 指定端口
+imgp gui -P 9000
+```
+
+打开浏览器后，你可以：
+
+- 输入镜像名、选择平台、点击下载
+- 实时查看每层的下载进度条
+- 在配置页面增删镜像加速地址
+- 查看和清空缓存
+
 ### `imgp config` — 配置管理
 
 ```bash
