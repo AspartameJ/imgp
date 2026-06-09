@@ -132,13 +132,7 @@ Custom directory:
 imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ```
 
-### `imgp gui` — Web GUI (gui branch)
-
-> Switch to the `gui` branch first:
-> ```bash
-> git checkout gui
-> go build -o imgp.exe .
-> ```
+### `imgp gui` — Web GUI
 
 ```bash
 # Start GUI (default port 8080)

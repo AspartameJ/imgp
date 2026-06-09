@@ -153,13 +153,7 @@ imgp cache clear
 imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ```
 
-### `imgp gui` — Web 图形界面（gui 分支）
-
-> 需要切换到 `gui` 分支：
-> ```bash
-> git checkout gui
-> go build -o imgp.exe .
-> ```
+### `imgp gui` — Web 图形界面
 
 ```bash
 # 启动 GUI（默认端口 8080）
