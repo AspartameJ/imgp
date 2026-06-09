@@ -58,7 +58,7 @@ go install gitcode.com/DonaldTom/imgp@latest
 打开命令行，运行：
 
 ```bash
-imgp version
+imgp -v
 ```
 
 如果看到输出版本号，说明安装成功。
@@ -157,7 +157,7 @@ imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ### `imgp gui` — Web 图形界面
 
 ```bash
-# 启动 GUI（默认端口 9191）
+# 启动 GUI（默认端口 19191）
 imgp gui
 
 # 指定端口
@@ -185,6 +185,13 @@ imgp config set parallelism 8
 
 # 添加不安全 registry（允许 HTTP 连接）
 imgp config set insecure-registries "192.168.1.100:5000"
+
+# 设置每层下载超时和整体超时（分钟）
+imgp config set layer-timeout 60
+imgp config set timeout 120
+
+# 设置网络错误重试次数
+imgp config set retry 3
 ```
 
 配置文件 `imgp.json` 保存在 **imgp 二进制所在的目录**。默认内容：
@@ -260,9 +267,12 @@ Done: hello-world:latest saved to hello-world.tar
 
 # 编译全部 6 个平台（发布用）
 .\build.ps1 -All
+
+# 编译 GUI 版（双击启动，无控制台窗口）
+.\build.ps1 -GUI
 ```
 
-编译产物在 `bin\` 目录下。
+编译产物在 `bin\` 目录下。GUI 版文件名为 `imgp-windows-amd64-gui.exe`。
 
 ### Linux / macOS
 
@@ -325,13 +335,13 @@ docker load -i hello-world.tar
 docker images
 ```
 
-### Q: 下载中断了怎么办？
+### Q: 下载中断、超时或出错怎么办？
 
-下次对同一个镜像执行 `imgp save`，已下载的 layer 会自动跳过（断点续传）。如果想强制重下，加 `--no-cache`。
+imgp 提供三重保护：
 
-### Q: 下载遇到错误怎么自动重试？
+**断点续传** — 已下载的 layer 自动缓存，重跑直接跳过。加 `--no-cache` 强制重下。
 
-默认遇到网络错误（如 `unexpected EOF`、`connection reset`）会自动重试 2 次。可调整重试次数：
+**自动重试** — 网络抖动（如 `unexpected EOF`、`connection reset`）自动重试 2 次：
 
 ```bash
 # 重试 5 次
@@ -340,18 +350,16 @@ imgp save hello-world:latest -o hello-world.tar --retry 5
 # 不重试
 imgp save hello-world:latest -o hello-world.tar --retry 0
 
-# 持久化
+# 持久化到配置
 imgp config set retry 3
 ```
 
-不重试的错误类型：403、401、404 等权限/不存在错误。
+404/403/401 等错误不会重试。
 
-### Q: 下载时间太长被终止了怎么办？
-
-网络慢或镜像大时可能触发超时。增大超时时间：
+**超时控制** — 大镜像或慢网络增大超时时间：
 
 ```bash
-# 每层给 60 分钟，整体给 2 小时
+# 每层 60 分钟，整体 2 小时
 imgp save large-image:latest -o large.tar --layer-timeout 60 --timeout 120
 
 # 持久化到配置

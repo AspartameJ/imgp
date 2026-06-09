@@ -52,7 +52,7 @@ go install gitcode.com/DonaldTom/imgp@latest
 ### Verify
 
 ```bash
-imgp version
+imgp -v
 ```
 
 ## Quick Start
@@ -136,7 +136,7 @@ imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ### `imgp gui` — Web GUI
 
 ```bash
-# Start GUI (default port 9191)
+# Start GUI (default port 19191)
 imgp gui
 
 # Custom port
@@ -164,6 +164,13 @@ imgp config set parallelism 8
 
 # Add insecure registries (allow HTTP)
 imgp config set insecure-registries "192.168.1.100:5000"
+
+# Set per-layer and overall timeout (minutes)
+imgp config set layer-timeout 60
+imgp config set timeout 120
+
+# Set retry count on network errors
+imgp config set retry 3
 ```
 
 Config file `imgp.json` is stored next to the binary. Defaults:
@@ -231,9 +238,12 @@ With multiple layers:
 
 # Build all 6 platforms (for release)
 .\build.ps1 -All
+
+# Build GUI edition (double-click to start, no console window)
+.\build.ps1 -GUI
 ```
 
-Output goes to `bin\` directory.
+Output goes to `bin\` directory. GUI file: `imgp-windows-amd64-gui.exe`.
 
 ### Linux / macOS
 
@@ -345,6 +355,20 @@ Format: `os/arch` or `os/arch/variant`
 ### Q: Where is `imgp.json`?
 
 In the same directory as the `imgp` binary. Run `which imgp` (Linux/macOS) or `where.exe imgp` (Windows) to find it.
+
+### Q: Can't access Docker Hub. How to configure a mirror?
+
+A mirror is already configured in `mirror_map` by default. To use your own:
+
+```bash
+imgp config set mirror-map "docker.io=your-mirror.com"
+```
+
+Multiple mirrors (separated by `|`):
+
+```bash
+imgp config set mirror-map "docker.io=mirror1.example.com|mirror2.example.com"
+```
 
 ## Notes
 
