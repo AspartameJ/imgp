@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -45,6 +46,10 @@ func (c *Client) transport(reg name.Registry) http.RoundTripper {
 	t.MaxConnsPerHost = 100
 	t.ResponseHeaderTimeout = 30 * time.Second
 	t.TLSHandshakeTimeout = 10 * time.Second
+	t.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
 	if c.insecure {
 		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		return t
@@ -173,7 +178,7 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 
 	plat := parsePlatform(platform)
 
-	var lastErr error
+	var errs []string
 	for _, r := range refsToTry {
 		reg := r.Context().Registry
 		opts := []remote.Option{
@@ -187,11 +192,11 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 
 		img, err := remote.Image(r, opts...)
 		if err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
 			continue
 		}
 		return img, r, nil
 	}
 
-	return nil, nil, fmt.Errorf("all registries failed: %w", lastErr)
+	return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
 }
