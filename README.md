@@ -9,7 +9,7 @@
 | 特性 | 说明 |
 |---|---|
 | **多架构** | 拉取任意平台的镜像（`linux/amd64`、`linux/arm64`、`windows/amd64` 等） |
-| **镜像加速** | 内置国内镜像加速，自动匹配 docker.io、quay.io、gcr.io |
+| **镜像加速** | 内置国内镜像加速，自动匹配 docker.io、gcr.io |
 | **并行下载** | 多 layer 并发拉取，速度翻倍 |
 | **断点续传** | 已下载的 layer 缓存到本地，中断后自动跳过 |
 | **详细进度** | 每层独立进度条，实时显示下载状态 |
@@ -78,7 +78,6 @@ imgp save [镜像名] [参数]
 {
   "mirror_map": {
     "docker.io": ["docker.m.daocloud.io"],
-    "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
   "parallelism": 4
@@ -92,7 +91,7 @@ imgp save [镜像名] [参数]
 imgp config list
 
 # 修改镜像加速映射
-imgp config set mirror-map "docker.io=docker.m.daocloud.io,quay.io=quay.mirrors.daocloud.io"
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
 
 # 一个 registry 配多个镜像，用 | 分隔
 imgp config set mirror-map "docker.io=mirror1|mirror2"

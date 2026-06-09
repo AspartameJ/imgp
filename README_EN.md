@@ -9,7 +9,7 @@ Cross-platform Docker image pull and save tool. Supports multi-architecture imag
 | Feature | Description |
 |---|---|
 | **Multi-architecture** | Pull images for any platform (`linux/amd64`, `linux/arm64`, `windows/amd64`) |
-| **Mirror acceleration** | Built-in mirrors for docker.io, quay.io, gcr.io |
+| **Mirror acceleration** | Built-in mirrors for docker.io, gcr.io |
 | **Parallel downloads** | Concurrent layer pulling for faster downloads |
 | **Resume support** | Downloaded layers are cached and skipped on retry |
 | **Detailed progress** | Per-layer progress bars with real-time updates |
@@ -75,7 +75,6 @@ Configuration is stored in `imgp.json` next to the binary. Defaults:
 {
   "mirror_map": {
     "docker.io": ["docker.m.daocloud.io"],
-    "quay.io": ["quay.mirrors.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
   "parallelism": 4
@@ -89,7 +88,7 @@ Edit via CLI:
 imgp config list
 
 # Set mirror mapping
-imgp config set mirror-map "docker.io=docker.m.daocloud.io,quay.io=quay.mirrors.daocloud.io"
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
 
 # Multiple mirrors per registry (separated by |)
 imgp config set mirror-map "docker.io=mirror1|mirror2"

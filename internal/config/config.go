@@ -26,7 +26,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		MirrorMap: map[string][]string{
 			"docker.io": {"docker.m.daocloud.io"},
-			"quay.io":   {"quay.mirrors.daocloud.io"},
 			"gcr.io":    {"gcr.mirrors.daocloud.io"},
 		},
 		Parallelism: 4,
