@@ -156,16 +156,14 @@ for downloading Docker images. Features:
   - Cache management (view size, clear)
   - Private registry authentication
 
-Default: http://127.0.0.1:9191
+Default: http://127.0.0.1:19191
 Use --port to change the port.`,
 	RunE: runGUI,
 }
 
 func init() {
-	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "9191", "Web GUI port (default: 9191)")
+	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "19191", "Web GUI port (default: 19191)")
 }
-
-var guiServer *http.Server
 
 func runGUI(cmd *cobra.Command, args []string) error {
 	go func() {
@@ -293,8 +291,16 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		totalBytes := int64(0)
 		tasks := make([]puller.LayerTask, len(imgLayers))
 		for i, l := range imgLayers {
-			digest, _ := l.Digest()
-			size, _ := l.Size()
+			digest, err := l.Digest()
+			if err != nil {
+				guiProgress.setError(fmt.Sprintf("get layer %d digest: %v", i, err))
+				return
+			}
+			size, err := l.Size()
+			if err != nil {
+				guiProgress.setError(fmt.Sprintf("get layer %d size: %v", i, err))
+				return
+			}
 			dHex := digest.Hex
 			tasks[i] = puller.LayerTask{
 				Index:     i,

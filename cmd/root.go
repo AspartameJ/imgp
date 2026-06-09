@@ -38,7 +38,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "imgp",
 	Short:   "Cross-platform Docker image pull and save tool",
-	Version: "1.2.0",
+	Version: "1.3.0",
 }
 
 var saveCmd = &cobra.Command{
