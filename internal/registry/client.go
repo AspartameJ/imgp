@@ -22,6 +22,7 @@ type Client struct {
 	cfg      *config.Config
 	username string
 	password string
+	insecure bool
 }
 
 func NewClient(cfg *config.Config) *Client {
@@ -34,11 +35,20 @@ func (c *Client) WithAuth(username, password string) *Client {
 	return c
 }
 
+func (c *Client) WithInsecure(v bool) *Client {
+	c.insecure = v
+	return c
+}
+
 func (c *Client) transport(reg name.Registry) http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxConnsPerHost = 100
 	t.ResponseHeaderTimeout = 30 * time.Second
 	t.TLSHandshakeTimeout = 10 * time.Second
+	if c.insecure {
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		return t
+	}
 	for _, ir := range c.cfg.InsecureRegistries {
 		if reg.Name() == ir || strings.HasSuffix(reg.Name(), ir) {
 			if t.TLSClientConfig == nil {

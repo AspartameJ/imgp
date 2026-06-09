@@ -64,7 +64,7 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration value in imgp.json.
 
 Supported keys:
-  mirror-map          Comma-separated registry=mirror pairs (e.g., docker.io=mirror.example.com)
+  mirror-map          Comma-separated registry=mirror pairs (e.g., docker.io=mirror1|mirror2,quay.io=mirror)
   insecure-registries Comma-separated registry hostnames
   parallelism         Number of parallel downloads (default: 4)`,
 	Args: cobra.ExactArgs(2),
@@ -80,9 +80,14 @@ Supported keys:
 				pair = strings.TrimSpace(pair)
 				parts := strings.SplitN(pair, "=", 2)
 				if len(parts) != 2 {
-					return fmt.Errorf("invalid mirror-map format, expected: registry1=mirror1,registry2=mirror2")
+					return fmt.Errorf("invalid mirror-map format, expected: registry1=mirror1,... or registry1=mirror1|mirror2")
 				}
-				cfg.MirrorMap[strings.TrimSpace(parts[0])] = []string{strings.TrimSpace(parts[1])}
+				reg := strings.TrimSpace(parts[0])
+				mirrors := strings.Split(strings.TrimSpace(parts[1]), "|")
+				for i := range mirrors {
+					mirrors[i] = strings.TrimSpace(mirrors[i])
+				}
+				cfg.MirrorMap[reg] = mirrors
 			}
 		case "insecure-registries":
 			cfg.InsecureRegistries = strings.Split(value, ",")
@@ -134,7 +139,7 @@ func init() {
 		"Target platform (e.g., linux/amd64, linux/arm64, windows/amd64)")
 	saveCmd.Flags().StringVarP(&output, "output", "o", "", "Output tar file path")
 	saveCmd.Flags().StringVar(&username, "username", "", "Registry username")
-	saveCmd.Flags().StringVar(&password, "password", "", "Registry password")
+	saveCmd.Flags().StringVar(&password, "password", "", "Registry password (use --password-env for security)")
 	saveCmd.Flags().StringVar(&passwordEnv, "password-env", "IMG_REGISTRY_PASSWORD",
 		"Environment variable name for registry password")
 	saveCmd.Flags().BoolVar(&insecure, "insecure", false,
@@ -189,7 +194,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create registry client
-	client := registry.NewClient(cfg).WithAuth(username, pass)
+	client := registry.NewClient(cfg).WithAuth(username, pass).WithInsecure(insecure)
 
 	// Phase 1: Pull
 	if !quiet {
@@ -249,14 +254,27 @@ func runSave(cmd *cobra.Command, args []string) error {
 		return filepath.Join(cacheDir, digest+".gz")
 	}
 
+	if !quiet {
+		fmt.Printf("\r  exporting: 0%%")
+	}
 	err = saver.Export(ref, img, outPath, cachePathFn,
 		func(completed, total int64) {
-			_ = completed
-			_ = total
+			if quiet {
+				return
+			}
+			percent := float64(0)
+			if total > 0 {
+				percent = float64(completed) / float64(total) * 100
+			}
+			fmt.Printf("\r  exporting: %.0f%% | %s / %s",
+				percent, formatBytes(completed), formatBytes(total))
 		},
 	)
 	if err != nil {
 		return fmt.Errorf("export: %w", err)
+	}
+	if !quiet {
+		fmt.Println()
 	}
 
 	if !quiet {
@@ -278,15 +296,20 @@ type layerState struct {
 
 type progressDisplay struct {
 	quiet    bool
+	useANSI bool
 	mu       sync.Mutex
 	layers   []layerState
 	total    int64
-	current  int64
 	hasError bool
 }
 
+func isTerminal() bool {
+	fi, _ := os.Stdout.Stat()
+	return fi != nil && (fi.Mode()&os.ModeCharDevice) != 0
+}
+
 func newProgressDisplay(quiet bool) *progressDisplay {
-	return &progressDisplay{quiet: quiet}
+	return &progressDisplay{quiet: quiet, useANSI: isTerminal()}
 }
 
 func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []puller.LayerTask) <-chan struct{} {
@@ -361,31 +384,38 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 				percent = float64(currentBytes) / float64(p.total) * 100
 			}
 
-			lines := 1 + totalLayers
-			if prevLayers > 0 {
+			if p.useANSI && prevLayers > 0 {
 				fmt.Printf("\033[%dA", prevLayers)
 			}
-			prevLayers = lines
 
-			fmt.Printf("\033[2K\r  layers: [%d/%d] %.1f%% | %s / %s\n",
-				doneLayers, totalLayers, percent,
-				formatBytes(currentBytes), formatBytes(p.total))
+			if p.useANSI {
+				fmt.Printf("\033[2K\r  layers: [%d/%d] %.1f%% | %s / %s\n",
+					doneLayers, totalLayers, percent,
+					formatBytes(currentBytes), formatBytes(p.total))
+			} else {
+				fmt.Printf("\r  layers: [%d/%d] %.1f%% | %s / %s",
+					doneLayers, totalLayers, percent,
+					formatBytes(currentBytes), formatBytes(p.total))
+			}
 
-			for _, ls := range p.layers {
-				bar := renderBar(ls.current, ls.total, 30)
-				switch ls.status {
-				case "cached":
-					fmt.Printf("\033[2K\r    ✓ %s %s (cached)\n", shorten(ls.digest, 12), bar)
-				case "done":
-					fmt.Printf("\033[2K\r    ✓ %s %s\n", shorten(ls.digest, 12), bar)
-				case "downloading":
-					fmt.Printf("\033[2K\r    ◌ %s %s %s/%s\n",
-						shorten(ls.digest, 12), bar,
-						formatBytes(ls.current), formatBytes(ls.total))
-				case "error":
-					fmt.Printf("\033[2K\r    ✗ %s download failed\n", shorten(ls.digest, 12))
-				default:
-					fmt.Printf("\033[2K\r    · %s waiting...\n", shorten(ls.digest, 12))
+			if p.useANSI {
+				prevLayers = 1 + totalLayers
+				for _, ls := range p.layers {
+					bar := renderBar(ls.current, ls.total, 30)
+					switch ls.status {
+					case "cached":
+						fmt.Printf("\033[2K\r    ✓ %s %s (cached)\n", shorten(ls.digest, 12), bar)
+					case "done":
+						fmt.Printf("\033[2K\r    ✓ %s %s\n", shorten(ls.digest, 12), bar)
+					case "downloading":
+						fmt.Printf("\033[2K\r    ◌ %s %s %s/%s\n",
+							shorten(ls.digest, 12), bar,
+							formatBytes(ls.current), formatBytes(ls.total))
+					case "error":
+						fmt.Printf("\033[2K\r    ✗ %s download failed\n", shorten(ls.digest, 12))
+					default:
+						fmt.Printf("\033[2K\r    · %s waiting...\n", shorten(ls.digest, 12))
+					}
 				}
 			}
 			p.mu.Unlock()

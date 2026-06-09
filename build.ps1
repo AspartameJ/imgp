@@ -23,7 +23,7 @@ foreach ($os in $targets) {
         $env:GOOS = $os
         $env:GOARCH = $arch
         $env:CGO_ENABLED = 0
-        go build -ldflags $ldflags -o "bin/$name" .
+        go build -o "bin/$name" .
         if ($LASTEXITCODE -eq 0) {
             $size = (Get-Item "bin/$name").Length
             Write-Host "  OK  $([math]::Round($size/1KB, 1)) KB" -ForegroundColor Cyan
