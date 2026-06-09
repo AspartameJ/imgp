@@ -105,6 +105,7 @@ imgp save [image] [flags]
 | `--cache-dir` | OS-specific (see Cache) | Custom cache directory |
 | `--timeout` | 0 (no limit) | Overall operation timeout in minutes |
 | `--layer-timeout` | 30 | Per-layer download timeout in minutes |
+| `--retry` | 2 | Number of retries on network errors (0 = no retry) |
 | `-q, --quiet` | false | Output only the tar path |
 | `-h, --help` | - | Show help |
 
@@ -294,6 +295,23 @@ docker load -i hello-world.tar
 ### Q: Download was interrupted. What now?
 
 Layers already downloaded are cached. Run the same `imgp save` command again and it will resume. Use `--no-cache` to force a full re-download.
+
+### Q: How does automatic retry work?
+
+On network errors (e.g. `unexpected EOF`, `connection reset`), imgp automatically retries 2 times by default.
+
+```bash
+# Retry 5 times
+imgp save hello-world:latest -o hello-world.tar --retry 5
+
+# No retry
+imgp save hello-world:latest -o hello-world.tar --retry 0
+
+# Persist in config
+imgp config set retry 3
+```
+
+Errors like 403, 401, 404 are NOT retried.
 
 ### Q: Download timed out. What can I do?
 

@@ -126,6 +126,7 @@ imgp save [镜像名] [参数]
 | `--cache-dir` | 见缓存管理 | 指定缓存目录 |
 | `--timeout` | 0（无限制） | 整体超时（分钟），超时后自动终止 |
 | `--layer-timeout` | 30 | 每层下载超时（分钟），适合大镜像调大 |
+| `--retry` | 2 | 网络错误时的重试次数（0 = 不重试） |
 | `-q, --quiet` | false | 静默模式，只输出 tar 文件路径 |
 | `-h, --help` | - | 显示帮助 |
 
@@ -327,6 +328,23 @@ docker images
 ### Q: 下载中断了怎么办？
 
 下次对同一个镜像执行 `imgp save`，已下载的 layer 会自动跳过（断点续传）。如果想强制重下，加 `--no-cache`。
+
+### Q: 下载遇到错误怎么自动重试？
+
+默认遇到网络错误（如 `unexpected EOF`、`connection reset`）会自动重试 2 次。可调整重试次数：
+
+```bash
+# 重试 5 次
+imgp save hello-world:latest -o hello-world.tar --retry 5
+
+# 不重试
+imgp save hello-world:latest -o hello-world.tar --retry 0
+
+# 持久化
+imgp config set retry 3
+```
+
+不重试的错误类型：403、401、404 等权限/不存在错误。
 
 ### Q: 下载时间太长被终止了怎么办？
 
