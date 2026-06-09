@@ -1,0 +1,15 @@
+{
+  "mirror_map": {
+    "docker.io": ["docker.daocloud.io"],
+    "quay.io": ["quay.mirrors.daocloud.io"],
+    "gcr.io": ["gcr.mirrors.daocloud.io"]
+  },
+  "auths": {
+    "registry.example.com": {
+      "username": "your-username",
+      "password_env": "IMG_REGISTRY_PASSWORD"
+    }
+  },
+  "insecure_registries": ["192.168.1.100:5000"],
+  "parallelism": 4
+}

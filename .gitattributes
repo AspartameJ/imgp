@@ -1,0 +1,26 @@
+# Normalize line endings
+* text=auto
+
+# Go source files
+*.go text eol=lf
+
+# Scripts
+*.ps1 text eol=crlf
+*.sh text eol=lf
+
+# Markdown
+*.md text eol=lf
+
+# Config
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Git files
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Binary files
+*.exe binary
+*.tar binary
+*.gz binary

@@ -5,6 +5,9 @@ imgp.exe
 # 缓存
 .imgp-cache/
 
+# 构建输出
+bin/
+
 # 配置文件（每个用户不同）
 imgp.json
 
