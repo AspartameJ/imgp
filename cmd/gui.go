@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -156,29 +155,33 @@ func init() {
 	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "8080", "Web GUI port (default: 8080)")
 }
 
+var guiServer *http.Server
+
 func runGUI(cmd *cobra.Command, args []string) error {
-	openBrowser("http://127.0.0.1:" + guiPort)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		openBrowser("http://127.0.0.1:" + guiPort)
+	}()
 	return serveGUI()
 }
 
 func StartGUI() {
-	openBrowser("http://127.0.0.1:" + guiPort)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		openBrowser("http://127.0.0.1:" + guiPort)
+	}()
 	err := serveGUI()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "GUI error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func openBrowser(url string) {
-	switch runtime.GOOS {
-	case "windows":
-		exec.Command("cmd", "/c", "start", url).Start()
-	case "darwin":
-		exec.Command("open", url).Start()
-	default:
-		exec.Command("xdg-open", url).Start()
-	}
+	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+}
+
+func handleShutdown(w http.ResponseWriter, r *http.Request) {
+	os.Exit(0)
 }
 
 func serveGUI() error {
@@ -193,6 +196,7 @@ func serveGUI() error {
 	mux.HandleFunc("/api/progress", handleProgress)
 	mux.HandleFunc("/api/cache", handleCache)
 	mux.HandleFunc("/api/config", handleConfig)
+	mux.HandleFunc("/api/shutdown", handleShutdown)
 
 	addr := "127.0.0.1:" + guiPort
 	fmt.Printf("imgp GUI started at http://%s\n", addr)
