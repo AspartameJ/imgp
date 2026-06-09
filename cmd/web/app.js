@@ -21,6 +21,7 @@ function startDownload() {
   progressSection.style.display = 'block';
   document.getElementById('errorBox').style.display = 'none';
   document.getElementById('doneBox').style.display = 'none';
+  document.getElementById('cancelBtn').style.display = 'inline';
 
   fetch('/api/save', {
     method: 'POST',
@@ -71,16 +72,26 @@ function updateProgress(data) {
   if (data.phase === 'done') {
     document.querySelector('.btn-primary').disabled = false;
     document.querySelector('.btn-primary').textContent = '▶ 开始下载';
+    document.getElementById('cancelBtn').style.display = 'none';
     if (eventSource) eventSource.close();
     doneBox.style.display = 'block';
     doneBox.textContent = '✅ 下载完成！已保存到 ' + data.outputPath;
+function cancelDownload() {
+  if (!confirm('确定取消下载？')) return;
+  fetch('/api/cancel', { method: 'POST' }).then(function() {
+    document.getElementById('cancelBtn').style.display = 'none';
+    if (eventSource) eventSource.close();
+    showError('用户取消');
+  });
+}
+
 loadCacheInfo();
     return;
   }
 
   if (data.phase === 'downloading') {
     const percent = data.totalBytes > 0 ? (data.doneBytes / data.totalBytes * 100).toFixed(1) : 0;
-    header.innerHTML = `<b>正在下载:</b> ${data.doneLayers}/${data.totalLayers} 层 | ${percent}% | ${fmtSize(data.doneBytes)} / ${fmtSize(data.totalBytes)}`;
+    header.innerHTML = `<b>正在下载:</b> ${data.doneLayers}/${data.totalLayers} 层 | ${data.totalBytes > 0 ? percent + '% - ' + fmtSize(data.doneBytes) + ' / ' + fmtSize(data.totalBytes) : '准备中...'}`;
 
     let html = '';
     data.layers.forEach(function(l) {
@@ -89,7 +100,7 @@ loadCacheInfo();
       html += '<div class="progress-bar">';
       html += '<span style="width:60px">' + shortenDigest(l.digest) + '</span>';
       html += '<div class="progress-track"><div class="progress-fill ' + cls + '" style="width:' + pct + '%"></div></div>';
-      html += '<span class="progress-label">' + (l.status === 'waiting' ? '等待中' : pct.toFixed(0) + '%') + '</span>';
+      html += '<span class="progress-label">' + (l.status === 'waiting' ? '等待中' : l.total === 0 ? '' : pct.toFixed(0) + '%') + '</span>';
       if (l.status === 'downloading' && l.total > 0) {
         html += '<span style="font-size:11px;color:#888;min-width:70px;text-align:right">' + fmtSize(l.bytes) + '/' + fmtSize(l.total) + '</span>';
       }
@@ -100,16 +111,21 @@ loadCacheInfo();
   }
 
   if (data.phase === 'exporting') {
-    const pct = data.exportTotal > 0 ? (data.exportBytes / data.exportTotal * 100).toFixed(0) : 0;
     header.innerHTML = '<b>正在导出 tar...</b>';
     exportDiv.style.display = 'block';
-    exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><div class="progress-track"><div class="progress-fill downloading" style="width:' + pct + '%"></div></div><span class="progress-label">' + pct + '%</span></div>';
+    if (data.exportTotal > 0) {
+      const pct = (data.exportBytes / data.exportTotal * 100).toFixed(0);
+      exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><div class="progress-track"><div class="progress-fill downloading" style="width:' + pct + '%"></div></div><span class="progress-label">' + pct + '%</span></div>';
+    } else {
+      exportDiv.innerHTML = '<div class="progress-bar"><span>导出中</span><span style="color:#888;font-size:13px">准备中...</span></div>';
+    }
   }
 }
 
 function showError(msg) {
   document.querySelector('.btn-primary').disabled = false;
   document.querySelector('.btn-primary').textContent = '▶ 开始下载';
+  document.getElementById('cancelBtn').style.display = 'none';
   if (eventSource) eventSource.close();
   document.getElementById('errorBox').style.display = 'block';
   document.getElementById('errorBox').textContent = '❌ ' + msg;

@@ -69,6 +69,11 @@ func (p *pullProgress) setPhase(phase string) {
 func (p *pullProgress) setError(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if strings.Contains(msg, "context canceled") {
+		p.Phase = "error"
+		p.Error = "download cancelled"
+		return
+	}
 	p.Phase = "error"
 	p.Error = msg
 }
@@ -94,7 +99,11 @@ func (p *pullProgress) updateLayer(idx int, evt puller.PullEvent) {
 		if evt.Err != nil {
 			p.Layers[idx].Status = "error"
 			p.Phase = "error"
-			p.Error = evt.Err.Error()
+			errMsg := evt.Err.Error()
+			if strings.Contains(errMsg, "context canceled") {
+				errMsg = "download cancelled"
+			}
+			p.Error = errMsg
 		} else {
 			p.Layers[idx].Bytes = evt.Bytes
 			p.Layers[idx].Status = evt.Status
@@ -131,6 +140,7 @@ func (p *pullProgress) setDone(outputPath string) {
 }
 
 var guiProgress pullProgress
+var downloadCancel context.CancelFunc
 
 var guiCmd = &cobra.Command{
 	Use:   "gui",
@@ -184,6 +194,14 @@ func handleShutdown(w http.ResponseWriter, r *http.Request) {
 	os.Exit(0)
 }
 
+func handleCancel(w http.ResponseWriter, r *http.Request) {
+	if downloadCancel != nil {
+		downloadCancel()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
 func serveGUI() error {
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -197,6 +215,7 @@ func serveGUI() error {
 	mux.HandleFunc("/api/cache", handleCache)
 	mux.HandleFunc("/api/config", handleConfig)
 	mux.HandleFunc("/api/shutdown", handleShutdown)
+	mux.HandleFunc("/api/cancel", handleCancel)
 
 	addr := "127.0.0.1:" + guiPort
 	fmt.Printf("imgp GUI started at http://%s\n", addr)
@@ -225,7 +244,12 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	guiProgress = pullProgress{progressData: progressData{Phase: "starting"}}
 
 	go func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		downloadCancel = cancel
+		defer func() {
+			downloadCancel = nil
+			cancel()
+		}()
 
 		cfg, err := config.Load()
 		if err != nil {
