@@ -49,9 +49,12 @@
         <label for="password">密码（可选）</label>
         <input type="password" id="password" placeholder="registry 密码">
       </div>
-      <div class="form-group">
-        <label>&nbsp;</label>
-        <button class="btn btn-primary" onclick="startDownload()">▶ 开始下载</button>
+      <div class="form-group" style="display:flex;align-items:flex-end">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="insecure" style="width:auto">
+          允许非 TLS 连接
+        </label>
+        <button class="btn btn-primary" onclick="startDownload()" style="margin-left:auto">▶ 开始下载</button>
       </div>
     </div>
   </div>

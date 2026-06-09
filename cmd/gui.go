@@ -175,6 +175,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		Output   string `json:"output"`
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Insecure bool   `json:"insecure"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -190,7 +191,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		client := registry.NewClient(cfg).WithAuth(req.Username, req.Password)
+		client := registry.NewClient(cfg).WithAuth(req.Username, req.Password).WithInsecure(req.Insecure)
 
 		plat := req.Platform
 		if plat == "" {

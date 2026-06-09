@@ -8,6 +8,7 @@ function startDownload() {
   const output = document.getElementById('outputFile').value.trim();
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
+  const insecure = document.getElementById('insecure').checked;
 
   document.querySelector('.btn-primary').disabled = true;
   document.querySelector('.btn-primary').textContent = '⏳ 下载中...';
@@ -20,7 +21,7 @@ function startDownload() {
   fetch('/api/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image, platform, output, username, password })
+    body: JSON.stringify({ image, platform, output, username, password, insecure })
   })
   .then(r => r.json())
   .then(data => {
