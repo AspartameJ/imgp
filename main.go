@@ -1,6 +1,6 @@
 package main
 
-import "imgp/cmd"
+import "gitcode.com/DonaldTom/imgp/cmd"
 
 func main() {
 	cmd.Execute()

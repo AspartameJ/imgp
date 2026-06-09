@@ -1,4 +1,4 @@
-module imgp
+module gitcode.com/DonaldTom/imgp
 
 go 1.22
 

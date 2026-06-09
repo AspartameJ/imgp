@@ -15,7 +15,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"imgp/internal/config"
+	"gitcode.com/DonaldTom/imgp/internal/config"
 )
 
 type Client struct {

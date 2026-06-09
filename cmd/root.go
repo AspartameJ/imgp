@@ -14,10 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"imgp/internal/config"
-	"imgp/internal/puller"
-	"imgp/internal/registry"
-	"imgp/internal/saver"
+	"gitcode.com/DonaldTom/imgp/internal/config"
+	"gitcode.com/DonaldTom/imgp/internal/puller"
+	"gitcode.com/DonaldTom/imgp/internal/registry"
+	"gitcode.com/DonaldTom/imgp/internal/saver"
 )
 
 var (
