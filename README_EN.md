@@ -65,7 +65,7 @@ imgp save [image] [flags]
 | `--insecure` | Allow insecure registry connections |
 | `-P, --parallel` | Parallel downloads (default: 4) |
 | `--no-cache` | Ignore cached layers, force re-download |
-| `--cache-dir` | Custom cache directory (default: `.imgp-cache` next to binary) |
+| `--cache-dir` | Custom cache directory (see Cache Management for defaults) |
 | `-q, --quiet` | Quiet mode, output only the tar path |
 | `-h, --help` | Show help |
 
@@ -79,7 +79,15 @@ imgp cache info
 imgp cache clear
 ```
 
-Custom cache directory:
+Default cache locations by OS:
+
+| Platform | Path |
+|---|---|
+| Windows | `%LOCALAPPDATA%\imgp\cache` |
+| Linux | `~/.cache/imgp` or `$XDG_CACHE_HOME/imgp` |
+| macOS | `~/Library/Caches/imgp` |
+
+Custom directory via `--cache-dir`:
 
 ```bash
 imgp save -o nginx.tar nginx:latest --cache-dir /tmp/my-cache
@@ -173,7 +181,7 @@ No Docker daemon is required at any step.
 
 ## Notes
 
-- **Cache directory** — `.imgp-cache/` is created alongside the binary. Use `imgp cache info` to check usage, `imgp cache clear` to clean up.
+- **Cache directory** — OS-specific (Windows `%LOCALAPPDATA%`, Linux `~/.cache`, macOS `~/Library/Caches`). Use `imgp cache info` to check usage, `imgp cache clear` to clean up.
 - **Mirror format** — do not include `https://` prefix (e.g. `docker.daocloud.io`)
 - **Platform format** — `os/arch` or `os/arch/variant` (e.g. `linux/amd64`, `linux/arm64/v8`)
 - **Digest references** — `image@sha256:...` format does not trigger auto-mirroring

@@ -68,7 +68,7 @@ imgp save [镜像名] [参数]
 | `--insecure` | 允许非 TLS 连接 |
 | `-P, --parallel` | 并行下载层数（默认 4） |
 | `--no-cache` | 忽略缓存，强制重新下载所有层 |
-| `--cache-dir` | 指定缓存目录（默认：二进制同目录的 `.imgp-cache`） |
+| `--cache-dir` | 指定缓存目录（默认见下方缓存管理说明） |
 | `-q, --quiet` | 静默模式，仅输出 tar 路径 |
 | `-h, --help` | 帮助信息 |
 
@@ -112,7 +112,15 @@ imgp cache info
 imgp cache clear
 ```
 
-缓存目录默认在 `.imgp-cache/`（与二进制同目录），可通过 `--cache-dir` 临时指定：
+默认缓存目录按操作系统规范：
+
+| 平台 | 路径 |
+|---|---|
+| Windows | `%LOCALAPPDATA%\imgp\cache` |
+| Linux | `~/.cache/imgp` 或 `$XDG_CACHE_HOME/imgp` |
+| macOS | `~/Library/Caches/imgp` |
+
+可通过 `--cache-dir` 临时指定：
 
 ```bash
 imgp save -o nginx.tar nginx:latest --cache-dir D:\temp\my-cache
@@ -176,7 +184,7 @@ GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
 
 ## 注意事项
 
-- **缓存目录**：`.imgp-cache/` 位于二进制同目录，用 `imgp cache info` 查看用量，`imgp cache clear` 清理
+- **缓存目录**：按操作系统规范（Windows `%LOCALAPPDATA%`、Linux `~/.cache`、macOS `~/Library/Caches`），用 `imgp cache info` 查看用量，`imgp cache clear` 清理
 - **镜像加速格式**：加速地址前面不需要 `https://` 前缀，如 `docker.daocloud.io`
 - **平台格式**：`os/arch` 或 `os/arch/variant`，如 `linux/amd64`、`linux/arm64/v8`
 - **不支持 digest 引用**：`image@sha256:...` 格式暂不自动加速

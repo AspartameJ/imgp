@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type AuthConfig struct {
@@ -70,4 +71,29 @@ func (c *Config) Save() error {
 
 func (c *Config) ExeDir() string {
 	return filepath.Dir(c.configPath)
+}
+
+func CacheDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData != "" {
+			return filepath.Join(localAppData, "imgp", "cache")
+		}
+	case "darwin":
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			return filepath.Join(home, "Library", "Caches", "imgp")
+		}
+	default: // linux and others
+		if cacheHome := os.Getenv("XDG_CACHE_HOME"); cacheHome != "" {
+			return filepath.Join(cacheHome, "imgp")
+		}
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			return filepath.Join(home, ".cache", "imgp")
+		}
+	}
+	// Fallback
+	return filepath.Join(".", ".imgp-cache")
 }

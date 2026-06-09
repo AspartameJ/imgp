@@ -63,14 +63,10 @@ var cacheInfoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show cache usage",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cacheDir := filepath.Join(cfg.ExeDir(), ".imgp-cache")
+		cd := config.CacheDir()
 		var totalSize int64
 		var fileCount int
-		if entries, err := os.ReadDir(cacheDir); err == nil {
+		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
 				fi, err := e.Info()
 				if err == nil && !e.IsDir() {
@@ -79,7 +75,7 @@ var cacheInfoCmd = &cobra.Command{
 				}
 			}
 		}
-		fmt.Printf("Cache directory: %s\n", cacheDir)
+		fmt.Printf("Cache directory: %s\n", cd)
 		fmt.Printf("Cached layers:   %d\n", fileCount)
 		fmt.Printf("Total size:      %s\n", formatBytes(totalSize))
 		return nil
@@ -90,21 +86,17 @@ var cacheClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear all cached layers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		cacheDir := filepath.Join(cfg.ExeDir(), ".imgp-cache")
+		cd := config.CacheDir()
 		var removed int
 		var freed int64
-		if entries, err := os.ReadDir(cacheDir); err == nil {
+		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
 				fi, err := e.Info()
 				if err == nil && !e.IsDir() {
 					freed += fi.Size()
 					removed++
 				}
-				os.RemoveAll(filepath.Join(cacheDir, e.Name()))
+				os.RemoveAll(filepath.Join(cd, e.Name()))
 			}
 		}
 		fmt.Printf("Cleared %d cached layers (%s)\n", removed, formatBytes(freed))
@@ -213,11 +205,11 @@ func init() {
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: binary dir/.imgp-cache)")
 }
 
-func cmdCacheDir(exeDir string) string {
+func cmdCacheDir() string {
 	if cacheDir != "" {
 		return cacheDir
 	}
-	return filepath.Join(exeDir, ".imgp-cache")
+	return config.CacheDir()
 }
 
 func runSave(cmd *cobra.Command, args []string) error {
@@ -258,8 +250,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create cache directory
-	exeDir := cfg.ExeDir()
-	cd := cmdCacheDir(exeDir)
+	cd := cmdCacheDir()
 	if err := os.MkdirAll(cd, 0755); err != nil {
 		return fmt.Errorf("create cache: %w", err)
 	}
