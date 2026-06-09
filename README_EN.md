@@ -20,14 +20,14 @@ Cross-platform Docker image pull and save tool. Supports multi-architecture imag
 ## Quick Start
 
 ```bash
-# Pull and save the latest nginx
-imgp save nginx:latest -o nginx.tar
+# Pull and save hello-world
+imgp save hello-world:latest -o hello-world.tar
 
 # Specify arm64 architecture
-imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
+imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
 
 # Load into Docker
-docker load -i nginx.tar
+docker load -i hello-world.tar
 ```
 
 ## Install
@@ -90,7 +90,7 @@ Default cache locations by OS:
 Custom directory via `--cache-dir`:
 
 ```bash
-imgp save -o nginx.tar nginx:latest --cache-dir /tmp/my-cache
+imgp save -o hello-world.tar hello-world:latest --cache-dir /tmp/my-cache
 ```
 
 ### Configuration
@@ -140,16 +140,14 @@ imgp save private/image:latest --username user --password your_password
 ## Demo
 
 ```
-$ imgp save nginx:latest -o nginx.tar --platform linux/arm64
+$ imgp save hello-world:latest -o hello-world.tar
 
-Pulling nginx:latest (linux/arm64)
+Pulling hello-world:latest (linux/amd64)
 Image manifest fetched, downloading layers...
-  layers: [2/3] 87.4% | 10.3 MB / 11.8 MB
-    ✓ sha256:9f1abecd  100%
-    ✓ sha256:c2caafd5  100%
-    ◌ sha256:b7e1cbd2  86% 9.2 MB / 10.7 MB
-  exporting: 100% | 11.8 MB / 11.8 MB
-Done: nginx:latest (linux/arm64) saved to nginx_linux-arm64.tar
+  layers: [1/1] 100% | 2.4 KB / 2.4 KB
+    ✓ sha256:4f55086f  100%
+  exporting: 100% | 6.5 KB / 6.5 KB
+Done: hello-world:latest saved to hello-world.tar
 ```
 
 ## Build from source

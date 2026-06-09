@@ -20,17 +20,14 @@
 ## 快速开始
 
 ```bash
-# 拉取并导出 nginx 最新版
-imgp save nginx:latest -o nginx.tar
+# 拉取并导出 hello-world
+imgp save hello-world:latest -o hello-world.tar
 
 # 指定拉取 arm64 架构
-imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
+imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
 
 # 导入 Docker
-docker load -i nginx.tar
-
-# 一行命令完成
-imgp save -o nginx.tar nginx:latest
+docker load -i hello-world.tar
 ```
 
 ## 安装
@@ -123,7 +120,7 @@ imgp cache clear
 可通过 `--cache-dir` 临时指定：
 
 ```bash
-imgp save -o nginx.tar nginx:latest --cache-dir D:\temp\my-cache
+imgp save -o hello-world.tar hello-world:latest --cache-dir D:\temp\my-cache
 ```
 
 ### 认证
@@ -143,16 +140,14 @@ imgp save private/image:latest --username user --password your_password
 ## 效果展示
 
 ```
-$ imgp save nginx:latest -o nginx.tar --platform linux/arm64
+$ imgp save hello-world:latest -o hello-world.tar
 
-Pulling nginx:latest (linux/arm64)
+Pulling hello-world:latest (linux/amd64)
 Image manifest fetched, downloading layers...
-  layers: [2/3] 87.4% | 10.3 MB / 11.8 MB
-    ✓ sha256:9f1abecd  100%
-    ✓ sha256:c2caafd5  100%
-    ◌ sha256:b7e1cbd2  86% 9.2 MB / 10.7 MB
-  exporting: 100% | 11.8 MB / 11.8 MB
-Done: nginx:latest (linux/arm64) saved to nginx_linux-arm64.tar
+  layers: [1/1] 100% | 2.4 KB / 2.4 KB
+    ✓ sha256:4f55086f  100%
+  exporting: 100% | 6.5 KB / 6.5 KB
+Done: hello-world:latest saved to hello-world.tar
 ```
 
 ## 源码构建
