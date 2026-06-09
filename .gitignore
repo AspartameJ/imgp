@@ -1,0 +1,14 @@
+# 编译产物
+imgp.exe
+*.tar
+
+# 缓存
+.imgp-cache/
+
+# 配置文件（每个用户不同）
+imgp.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
