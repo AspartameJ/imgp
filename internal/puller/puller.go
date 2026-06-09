@@ -28,12 +28,18 @@ type LayerTask struct {
 
 type Puller struct {
 	cacheDir string
+	noCache  bool
 }
 
 func NewPuller(cacheDir string) *Puller {
 	return &Puller{
 		cacheDir: cacheDir,
 	}
+}
+
+func (p *Puller) WithNoCache(v bool) *Puller {
+	p.noCache = v
+	return p
 }
 
 func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
@@ -83,12 +89,14 @@ func (p *Puller) Pull(
 
 				cacheFile := filepath.Join(p.cacheDir, t.DigestHex+".gz")
 
-				if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
-					sendEvent(ctx, ch, PullEvent{
-						Index: t.Index, Digest: t.DigestHex,
-						Bytes: t.Size, Total: t.Size, Status: "cached",
-					})
-					return
+				if !p.noCache {
+					if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
+						sendEvent(ctx, ch, PullEvent{
+							Index: t.Index, Digest: t.DigestHex,
+							Bytes: t.Size, Total: t.Size, Status: "cached",
+						})
+						return
+					}
 				}
 
 				os.Remove(cacheFile)

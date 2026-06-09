@@ -28,6 +28,8 @@ var (
 	insecure    bool
 	parallelism int
 	quiet       bool
+	noCache     bool
+	cacheDir    string
 )
 
 var rootCmd = &cobra.Command{
@@ -50,6 +52,64 @@ Examples:
   imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSave,
+}
+
+var cacheCmd = &cobra.Command{
+	Use:   "cache",
+	Short: "Manage layer cache",
+}
+
+var cacheInfoCmd = &cobra.Command{
+	Use:   "info",
+	Short: "Show cache usage",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		cacheDir := filepath.Join(cfg.ExeDir(), ".imgp-cache")
+		var totalSize int64
+		var fileCount int
+		if entries, err := os.ReadDir(cacheDir); err == nil {
+			for _, e := range entries {
+				fi, err := e.Info()
+				if err == nil && !e.IsDir() {
+					totalSize += fi.Size()
+					fileCount++
+				}
+			}
+		}
+		fmt.Printf("Cache directory: %s\n", cacheDir)
+		fmt.Printf("Cached layers:   %d\n", fileCount)
+		fmt.Printf("Total size:      %s\n", formatBytes(totalSize))
+		return nil
+	},
+}
+
+var cacheClearCmd = &cobra.Command{
+	Use:   "clear",
+	Short: "Clear all cached layers",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		cacheDir := filepath.Join(cfg.ExeDir(), ".imgp-cache")
+		var removed int
+		var freed int64
+		if entries, err := os.ReadDir(cacheDir); err == nil {
+			for _, e := range entries {
+				fi, err := e.Info()
+				if err == nil && !e.IsDir() {
+					freed += fi.Size()
+					removed++
+				}
+				os.RemoveAll(filepath.Join(cacheDir, e.Name()))
+			}
+		}
+		fmt.Printf("Cleared %d cached layers (%s)\n", removed, formatBytes(freed))
+		return nil
+	},
 }
 
 var configCmd = &cobra.Command{
@@ -130,6 +190,9 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
+	rootCmd.AddCommand(cacheCmd)
+	cacheCmd.AddCommand(cacheInfoCmd)
+	cacheCmd.AddCommand(cacheClearCmd)
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configListCmd)
@@ -146,6 +209,15 @@ func init() {
 	saveCmd.Flags().IntVarP(&parallelism, "parallel", "P", 0,
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
+	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
+	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: binary dir/.imgp-cache)")
+}
+
+func cmdCacheDir(exeDir string) string {
+	if cacheDir != "" {
+		return cacheDir
+	}
+	return filepath.Join(exeDir, ".imgp-cache")
 }
 
 func runSave(cmd *cobra.Command, args []string) error {
@@ -187,8 +259,8 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	// Create cache directory
 	exeDir := cfg.ExeDir()
-	cacheDir := filepath.Join(exeDir, ".imgp-cache")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	cd := cmdCacheDir(exeDir)
+	if err := os.MkdirAll(cd, 0755); err != nil {
 		return fmt.Errorf("create cache: %w", err)
 	}
 
@@ -237,7 +309,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	pl := puller.NewPuller(cacheDir)
+	pl := puller.NewPuller(cd).WithNoCache(noCache)
 	eventCh, err := pl.Pull(cmd.Context(), tasks, par)
 	if err != nil {
 		return fmt.Errorf("start pull: %w", err)
@@ -256,7 +328,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	cachePathFn := func(digest string) string {
-		return filepath.Join(cacheDir, digest+".gz")
+		return filepath.Join(cd, digest+".gz")
 	}
 
 	if !quiet {
