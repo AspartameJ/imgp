@@ -1,73 +1,73 @@
+[English](README_EN.md) | 中文
+
 # imgp
 
-**imgp** is a cross-platform Docker image pull and save tool. It pulls multi-architecture images from registries with mirror acceleration support and saves them as standard `docker load`-compatible tar archives — no Docker daemon required.
+跨平台 Docker 镜像拉取和导出工具。支持多架构镜像、镜像加速、并行下载、断点续传。无需 Docker 守护进程。
 
-**imgp** 是一个跨平台的 Docker 镜像拉取和导出工具。它支持从 registry 拉取多架构镜像，自动使用镜像加速，并保存为标准 `docker load` 可导入的 tar 包——无需安装 Docker 守护进程。
+## 功能特性
 
-## Features / 功能特点
-
-| English | 中文 |
+| 特性 | 说明 |
 |---|---|
-| **Multi-architecture** — pull for any platform (`linux/amd64`, `linux/arm64`, etc.) | **多架构** — 支持拉取任意平台的镜像 |
-| **Mirror acceleration** — auto mirror resolution for docker.io, quay.io, gcr.io | **镜像加速** — 内置国内镜像加速，自动切换 |
-| **Parallel downloads** — concurrent layer pulling | **并行下载** — 多 layer 并发拉取 |
-| **Resume support** — cached layers skip on retry | **断点续传** — 已下载的 layer 自动跳过 |
-| **Detailed progress** — per-layer progress bars | **详细进度** — 每层独立进度条显示 |
-| **Private registries** — username/password and token auth | **私有仓库** — 支持用户名密码和 token 认证 |
-| **Zero deps** — pure Go binary, no Docker needed | **无依赖** — 纯 Go 编译的单二进制，无需 Docker |
-| **Cross-platform** — Windows, Linux, macOS | **跨平台** — 原生支持 Windows / Linux / macOS |
+| **多架构** | 拉取任意平台的镜像（`linux/amd64`、`linux/arm64`、`windows/amd64` 等） |
+| **镜像加速** | 内置国内镜像加速，自动匹配 docker.io、quay.io、gcr.io |
+| **并行下载** | 多 layer 并发拉取，速度翻倍 |
+| **断点续传** | 已下载的 layer 缓存到本地，中断后自动跳过 |
+| **详细进度** | 每层独立进度条，实时显示下载状态 |
+| **私有仓库** | 支持用户名密码和 token 认证 |
+| **零依赖** | 纯 Go 编译的单二进制，无需安装 Docker |
+| **跨平台** | Windows、Linux、macOS 均可运行 |
 
-## Quick Start / 快速开始
+## 快速开始
 
 ```bash
-# Save nginx for your current platform / 拉取并导出
+# 拉取并导出 nginx 最新版
 imgp save nginx:latest -o nginx.tar
 
-# Specify a target architecture / 指定目标架构
+# 指定拉取 arm64 架构
 imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
 
-# Load into Docker / 导入 Docker
+# 导入 Docker
 docker load -i nginx.tar
+
+# 一行命令完成
+imgp save -o nginx.tar nginx:latest
 ```
 
-## Install / 安装
+## 安装
 
-### Download binary / 下载二进制
+### 下载二进制
 
-Download from the [Releases page](https://gitcode.com/DonaldTom/imgp/releases) and place it in your `PATH`.
+从 [Releases 页面](https://gitcode.com/DonaldTom/imgp/releases) 下载对应平台的二进制，放入 `PATH` 即可。
 
-从 [Releases 页面](https://gitcode.com/DonaldTom/imgp/releases) 下载，放入 `PATH` 即可使用。
-
-### From source / 源码编译
+### 源码编译
 
 ```bash
 go install gitcode.com/DonaldTom/imgp@latest
 ```
 
-## Usage / 使用说明
+## 使用说明
 
 ```bash
-imgp save [image] [flags]
+imgp save [镜像名] [参数]
 ```
 
-### Flags / 参数
+### 参数
 
-| Flag | English | 中文 |
-|---|---|---|
-| `-o, --output` | Output tar file path | 导出 tar 文件路径 |
-| `-p, --platform` | Target platform (e.g. `linux/arm64`) | 目标平台 |
-| `--username` | Registry username | Registry 用户名 |
-| `--password` | Registry password | Registry 密码 |
-| `--password-env` | Env var for password (default `IMG_REGISTRY_PASSWORD`) | 密码环境变量名 |
-| `--insecure` | Allow insecure registry connections | 允许非 TLS 连接 |
-| `-P, --parallel` | Parallel downloads (from config, or 4) | 并行下载数 |
-| `-q, --quiet` | Quiet mode, output only the tar path | 静默模式 |
+| 参数 | 说明 |
+|---|---|
+| `-o, --output` | 导出 tar 文件路径 |
+| `-p, --platform` | 目标平台，如 `linux/arm64` |
+| `--username` | Registry 用户名 |
+| `--password` | Registry 密码（建议用 `--password-env`） |
+| `--password-env` | 密码环境变量名（默认 `IMG_REGISTRY_PASSWORD`） |
+| `--insecure` | 允许非 TLS 连接 |
+| `-P, --parallel` | 并行下载层数（默认 4） |
+| `-q, --quiet` | 静默模式，仅输出 tar 路径 |
+| `-h, --help` | 帮助信息 |
 
-### Configuration / 配置
+### 配置
 
-Configuration is stored in `imgp.json` next to the binary.
-
-配置文件 `imgp.json` 与二进制文件在同一目录。
+配置文件 `imgp.json` 与二进制文件在同一目录。默认值：
 
 ```json
 {
@@ -80,53 +80,85 @@ Configuration is stored in `imgp.json` next to the binary.
 }
 ```
 
-Edit via CLI / 命令行修改：
+命令行修改：
 
 ```bash
+# 查看配置
 imgp config list
+
+# 修改镜像加速映射
 imgp config set mirror-map "docker.io=docker.daocloud.io,quay.io=quay.mirrors.daocloud.io"
+
+# 一个 registry 配多个镜像，用 | 分隔
+imgp config set mirror-map "docker.io=mirror1|mirror2"
+
+# 修改并行数
 imgp config set parallelism 8
 ```
 
-### Authentication / 认证
+### 认证
 
 ```bash
-# Password as argument / 直接传密码
-imgp save myregistry.com/private/app:latest --username user --password pass123
+# 从环境变量读取（推荐）
+export IMG_REGISTRY_PASSWORD=your_password
+imgp save private/image:latest --username user
 
-# Password from env var / 从环境变量读取
-export IMG_REGISTRY_PASSWORD=pass123
-imgp save myregistry.com/private/app:latest --username user
+# 直接传密码（不推荐，可能被其他进程看到）
+imgp save private/image:latest --username user --password your_password
 
-# Or configure in imgp.json / 或在配置文件中设置
-# See imgp.json.example for details
+# 在配置文件中设置
+# 详见 imgp.json.example
 ```
 
-## Build from source / 源码构建
+## 效果展示
+
+```
+$ imgp save nginx:latest -o nginx.tar --platform linux/arm64
+
+Pulling nginx:latest (linux/arm64)
+Image manifest fetched, downloading layers...
+  layers: [2/3] 87.4% | 10.3 MB / 11.8 MB
+    ✓ sha256:9f1abecd  100%
+    ✓ sha256:c2caafd5  100%
+    ◌ sha256:b7e1cbd2  86% 9.2 MB / 10.7 MB
+  exporting: 100% | 11.8 MB / 11.8 MB
+Done: nginx:latest (linux/arm64) saved to nginx_linux-arm64.tar
+```
+
+## 源码构建
 
 ```powershell
-# Windows
+# Windows（构建所有平台）
 .\build.ps1
+
+# 只构建 Windows
+.\build.ps1 -Target windows
 ```
 
 ```bash
 # Linux / macOS
 GOOS=linux GOARCH=amd64 go build -o imgp-linux-amd64 .
+GOOS=linux GOARCH=arm64 go build -o imgp-linux-arm64 .
 GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
 ```
 
-## How it works / 工作原理
+## 工作原理
 
-1. **Parse** — parse image reference (e.g. `quay.io/prometheus/node-exporter:v1.11.1`) / 解析镜像引用
-2. **Mirror** — apply mirror map (e.g. `quay.io` → `quay.mirrors.daocloud.io`) / 应用镜像加速映射
-3. **Resolve** — fetch manifest list and resolve target platform / 获取 manifest 并解析目标架构
-4. **Download** — download layers in parallel with progress / 并行下载各 layer 并显示进度
-5. **Export** — assemble and write a standard Docker tar / 组装并写入标准 Docker tar 包
-
-No Docker daemon is required at any step.
+1. **解析** — 解析镜像引用（如 `quay.io/prometheus/node-exporter:v1.11.1`）
+2. **镜像加速** — 根据 `mirror_map` 自动替换 registry 地址
+3. **解析架构** — 获取 manifest list（多架构清单），匹配目标平台
+4. **并行下载** — 每层一个 HTTP 请求，并发下载到缓存目录
+5. **导出 tar** — 从缓存读取各层，组装为标准 Docker tar 包
 
 整个过程无需 Docker 守护进程参与。
 
-## License / 许可证
+## 注意事项
 
-GNU General Public License v3.0. See [LICENSE](LICENSE).
+- **缓存目录**：`.imgp-cache/` 位于二进制同目录，可手动删除释放空间
+- **镜像加速格式**：加速地址前面不需要 `https://` 前缀，如 `docker.daocloud.io`
+- **平台格式**：`os/arch` 或 `os/arch/variant`，如 `linux/amd64`、`linux/arm64/v8`
+- **不支持 digest 引用**：`image@sha256:...` 格式暂不自动加速
+
+## License
+
+GNU General Public License v3.0。详见 [LICENSE](LICENSE)。
