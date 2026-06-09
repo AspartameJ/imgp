@@ -1,6 +1,25 @@
 param(
-    [switch]$All = $false
+    [switch]$All = $false,
+    [switch]$GUI = $false
 )
+
+if ($GUI) {
+    Write-Host "Building GUI edition (double-click to start) ..." -ForegroundColor Green
+    $ext = ".exe"
+    $name = "imgp-windows-amd64-gui$ext"
+    $env:GOOS = "windows"
+    $env:GOARCH = "amd64"
+    $env:CGO_ENABLED = 0
+    go build -ldflags="-H=windowsgui" -o "bin/$name" .
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  FAILED: $name" -ForegroundColor Red
+        exit 1
+    }
+    $size = (Get-Item "bin/$name").Length
+    Write-Host "  OK  $([math]::Round($size/1KB, 1)) KB" -ForegroundColor Cyan
+    Write-Host "`nDone. Binary in ./bin/$name" -ForegroundColor Green
+    return
+}
 
 $arches = @{
     windows = @("amd64", "arm64")

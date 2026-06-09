@@ -155,6 +155,18 @@ func init() {
 }
 
 func runGUI(cmd *cobra.Command, args []string) error {
+	return serveGUI()
+}
+
+func StartGUI() {
+	err := serveGUI()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "GUI error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func serveGUI() error {
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
 		return fmt.Errorf("load web files: %w", err)
