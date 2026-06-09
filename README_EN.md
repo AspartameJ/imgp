@@ -64,8 +64,26 @@ imgp save [image] [flags]
 | `--password-env` | Env var name for password (default `IMG_REGISTRY_PASSWORD`) |
 | `--insecure` | Allow insecure registry connections |
 | `-P, --parallel` | Parallel downloads (default: 4) |
+| `--no-cache` | Ignore cached layers, force re-download |
+| `--cache-dir` | Custom cache directory (default: `.imgp-cache` next to binary) |
 | `-q, --quiet` | Quiet mode, output only the tar path |
 | `-h, --help` | Show help |
+
+### Cache Management
+
+```bash
+# Show cache usage
+imgp cache info
+
+# Clear all cache
+imgp cache clear
+```
+
+Custom cache directory:
+
+```bash
+imgp save -o nginx.tar nginx:latest --cache-dir /tmp/my-cache
+```
 
 ### Configuration
 
@@ -155,7 +173,7 @@ No Docker daemon is required at any step.
 
 ## Notes
 
-- **Cache directory** — `.imgp-cache/` is created alongside the binary. Delete it to free up space.
+- **Cache directory** — `.imgp-cache/` is created alongside the binary. Use `imgp cache info` to check usage, `imgp cache clear` to clean up.
 - **Mirror format** — do not include `https://` prefix (e.g. `docker.daocloud.io`)
 - **Platform format** — `os/arch` or `os/arch/variant` (e.g. `linux/amd64`, `linux/arm64/v8`)
 - **Digest references** — `image@sha256:...` format does not trigger auto-mirroring
