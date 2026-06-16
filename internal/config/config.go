@@ -80,10 +80,6 @@ func (c *Config) Save() error {
 	return os.WriteFile(c.configPath, data, 0644)
 }
 
-func (c *Config) ExeDir() string {
-	return filepath.Dir(c.configPath)
-}
-
 func CacheDir() string {
 	switch runtime.GOOS {
 	case "windows":

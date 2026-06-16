@@ -507,9 +507,23 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 	quit := make(chan struct{})
 
 	if p.quiet {
+		p.layers = make([]layerState, len(tasks))
 		go func() {
 			defer close(quit)
-			for range eventCh {
+			for evt := range eventCh {
+				p.mu.Lock()
+				if evt.Err != nil {
+					p.hasError = true
+				}
+				if evt.Index < len(p.layers) {
+					p.layers[evt.Index].digest = evt.Digest
+					p.layers[evt.Index].status = evt.Status
+					if evt.Err != nil {
+						p.layers[evt.Index].status = "error"
+						p.layers[evt.Index].errMsg = evt.Err.Error()
+					}
+				}
+				p.mu.Unlock()
 			}
 		}()
 		return quit

@@ -273,16 +273,17 @@ function cancelDownload() {
   var btn = document.getElementById('cancelBtn');
   btn.disabled = true;
   btn.textContent = '⏳ 取消中...';
-  if (eventSource) eventSource.close();
   fetch('/api/cancel', { method: 'POST' }).then(function() {
+    if (eventSource) eventSource.close();
     btn.style.display = 'none';
     document.getElementById('errorBox').style.display = 'block';
     document.getElementById('errorBox').textContent = '❌ 用户取消';
     document.querySelector('.btn-primary').disabled = false;
     document.querySelector('.btn-primary').textContent = '▶ 开始下载';
   }).catch(function() {
+    if (eventSource) eventSource.close();
     btn.disabled = false;
-    btn.textContent = '✕ 取消';
+    btn.textContent = '✖ 取消下载';
   });
 }
 

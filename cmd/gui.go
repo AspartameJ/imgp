@@ -219,14 +219,19 @@ func handleOpenFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	p := filepath.Clean(req.Path)
+	if !filepath.IsAbs(p) || strings.Contains(p, "..") {
+		http.Error(w, "invalid path", 400)
+		return
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("explorer", "/select,", req.Path)
+		cmd = exec.Command("explorer", "/select,", p)
 	case "darwin":
-		cmd = exec.Command("open", "-R", req.Path)
+		cmd = exec.Command("open", "-R", p)
 	default:
-		cmd = exec.Command("xdg-open", filepath.Dir(req.Path))
+		cmd = exec.Command("xdg-open", filepath.Dir(p))
 	}
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "open file: %v\n", err)
@@ -403,9 +408,6 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 
 		for evt := range eventCh {
 			pp.updateLayer(evt.Index, evt)
-			if evt.Err != nil {
-				return
-			}
 		}
 
 		pp.setPhase("exporting")
