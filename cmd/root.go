@@ -113,7 +113,9 @@ var cacheClearCmd = &cobra.Command{
 					freed += fi.Size()
 					removed++
 				}
-				os.RemoveAll(filepath.Join(cd, e.Name()))
+				if err := os.RemoveAll(filepath.Join(cd, e.Name())); err != nil {
+				return fmt.Errorf("clear cache: %w", err)
+			}
 			}
 		}
 		fmt.Printf("Cleared %d cached layers (%s)\n", removed, formatBytes(freed))
@@ -406,8 +408,13 @@ func runSave(cmd *cobra.Command, args []string) error {
 	progress := newProgressDisplay(quiet)
 	pullDone := progress.startPull(eventCh, tasks)
 	<-pullDone
-	if progress.hasError {
-		for _, ls := range progress.layers {
+	progress.mu.Lock()
+	hasError := progress.hasError
+	layers := make([]layerState, len(progress.layers))
+	copy(layers, progress.layers)
+	progress.mu.Unlock()
+	if hasError {
+		for _, ls := range layers {
 			if ls.status == "error" && ls.errMsg != "" {
 				return fmt.Errorf("layer %s download failed: %s", shorten(ls.digest, 12), ls.errMsg)
 			}

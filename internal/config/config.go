@@ -65,7 +65,15 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) Save() error {
-	data, err := json.MarshalIndent(c, "", "  ")
+	saveCfg := *c
+	saveCfg.Auths = make(map[string]AuthConfig, len(c.Auths))
+	for k, v := range c.Auths {
+		saveCfg.Auths[k] = AuthConfig{
+			Username:    v.Username,
+			PasswordEnv: v.PasswordEnv,
+		}
+	}
+	data, err := json.MarshalIndent(saveCfg, "", "  ")
 	if err != nil {
 		return err
 	}

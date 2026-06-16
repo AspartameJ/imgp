@@ -73,11 +73,11 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 	}
 	if f, err := os.Open(cacheFile); err == nil {
 		var magic [2]byte
-		f.Read(magic[:])
-		f.Close()
-		if magic[0] != 0x1f || magic[1] != 0x8b {
+		if _, err := f.Read(magic[:]); err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
+			f.Close()
 			return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
 		}
+		f.Close()
 	}
 
 	return &fileLayer{

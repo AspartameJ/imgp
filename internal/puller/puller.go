@@ -130,24 +130,39 @@ func (p *Puller) Pull(
 				if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
 					if f, e := os.Open(cacheFile); e == nil {
 						var magic [2]byte
-						f.Read(magic[:])
-						f.Close()
-						if magic[0] == 0x1f && magic[1] == 0x8b {
+						if _, err := f.Read(magic[:]); err != nil {
+							f.Close()
 							sendEvent(ctx, ch, PullEvent{
 								Index: t.Index, Digest: t.DigestHex,
-								Bytes: t.Size, Total: t.Size, Status: "cached",
+								Err: fmt.Errorf("read cache: %w", err),
 							})
+							return
+						}
+						f.Close()
+						if magic[0] == 0x1f && magic[1] == 0x8b {
+							if !sendEvent(ctx, ch, PullEvent{
+								Index: t.Index, Digest: t.DigestHex,
+								Bytes: t.Size, Total: t.Size, Status: "cached",
+							}) {
+								return
+							}
 							return
 						}
 					}
 				}
 				}
 
-				os.Remove(cacheFile)
+			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+				sendEvent(ctx, ch, PullEvent{
+					Index: t.Index, Digest: t.DigestHex,
+					Err: fmt.Errorf("remove cache: %w", err),
+				})
+				return
+			}
 
-				if !sendEvent(ctx, ch, PullEvent{
-					Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
-				}) {
+			if !sendEvent(ctx, ch, PullEvent{
+				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
+			}) {
 					return
 				}
 
@@ -167,7 +182,13 @@ func (p *Puller) Pull(
 							return
 						case <-time.After(backoff):
 						}
-						os.Remove(cacheFile)
+						if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+							sendEvent(ctx, ch, PullEvent{
+								Index: t.Index, Digest: t.DigestHex,
+								Err: fmt.Errorf("remove cache: %w", err),
+							})
+							return
+						}
 						if !sendEvent(ctx, ch, PullEvent{
 							Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
 						}) {

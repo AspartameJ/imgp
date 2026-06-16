@@ -193,13 +193,17 @@ func StartGUI() {
 }
 
 func openBrowser(url string) {
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	case "darwin":
-		exec.Command("open", url).Start()
+		cmd = exec.Command("open", url)
 	default:
-		exec.Command("xdg-open", url).Start()
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "open browser: %v\n", err)
 	}
 }
 
@@ -215,13 +219,17 @@ func handleOpenFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("explorer", "/select,", req.Path).Start()
+		cmd = exec.Command("explorer", "/select,", req.Path)
 	case "darwin":
-		exec.Command("open", "-R", req.Path).Start()
+		cmd = exec.Command("open", "-R", req.Path)
 	default:
-		exec.Command("xdg-open", filepath.Dir(req.Path)).Start()
+		cmd = exec.Command("xdg-open", filepath.Dir(req.Path))
+	}
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "open file: %v\n", err)
 	}
 }
 
@@ -449,8 +457,12 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		s := pp.snapshot()
-		data, _ := json.Marshal(s)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		data, err := json.Marshal(s)
+		if err != nil {
+			fmt.Fprintf(w, "data: {\"error\":%q}\n\n", err.Error())
+		} else {
+			fmt.Fprintf(w, "data: %s\n\n", data)
+		}
 		flusher.Flush()
 
 		if s.Phase == "done" || s.Phase == "error" {
