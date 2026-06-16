@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/spf13/cobra"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
@@ -38,6 +39,10 @@ var (
 var rootCmd = &cobra.Command{
 	Use:     "imgp",
 	Short:   "Cross-platform Docker image pull and save tool",
+	Long: `A fast, cross-platform tool for pulling Docker images and saving them as tar archives.
+
+Supports multiple architectures (default: linux/amd64), parallel downloads,
+built-in mirror acceleration, and layer caching.`,
 	Version: "1.4.0",
 }
 
@@ -47,7 +52,7 @@ var saveCmd = &cobra.Command{
 	Long: `Pull a Docker image from a registry (with mirror acceleration support)
 and save it as a Docker-compatible tar archive.
 
-Supports multi-architecture images, parallel downloads, and resume.
+Supports multi-architecture images, parallel downloads, and layer caching.
 
 Examples:
   imgp save hello-world:latest -o hello-world.tar
@@ -60,17 +65,22 @@ Examples:
 var cacheCmd = &cobra.Command{
 	Use:   "cache",
 	Short: "Manage layer cache",
+	Long:  "View and manage the layer cache to avoid re-downloading layers on repeat pulls.",
 }
 
 var cacheInfoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show cache usage",
+	Long:  "Display the cache directory path, number of cached layers, and total disk usage.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cd := config.CacheDir()
+		cd := cmdCacheDir()
 		var totalSize int64
 		var fileCount int
 		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
+				if !strings.HasSuffix(e.Name(), ".gz") {
+					continue
+				}
 				fi, err := e.Info()
 				if err == nil && !e.IsDir() {
 					totalSize += fi.Size()
@@ -88,12 +98,16 @@ var cacheInfoCmd = &cobra.Command{
 var cacheClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Clear all cached layers",
+	Long:  "Remove all cached layer files to free up disk space.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cd := config.CacheDir()
+		cd := cmdCacheDir()
 		var removed int
 		var freed int64
 		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
+				if !strings.HasSuffix(e.Name(), ".gz") {
+					continue
+				}
 				fi, err := e.Info()
 				if err == nil && !e.IsDir() {
 					freed += fi.Size()
@@ -110,6 +124,7 @@ var cacheClearCmd = &cobra.Command{
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage imgp configuration",
+	Long:  "View and modify imgp configuration stored in imgp.json next to the binary.",
 }
 
 var configSetCmd = &cobra.Command{
@@ -121,7 +136,7 @@ Supported keys:
   mirror-map          Comma-separated registry=mirror pairs (e.g., docker.io=mirror1|mirror2,quay.io=mirror)
   insecure-registries Comma-separated registry hostnames
   parallelism         Number of parallel downloads (default: 4)
-  layer-timeout       Per-layer download timeout in minutes (default: 30)
+  layer-timeout       Per-layer download timeout in minutes (default: 30, 0 = no limit)
   timeout             Overall operation timeout in minutes (default: 0 = no limit)
   retry               Number of retries on network errors (default: 2)`,
 	Args: cobra.ExactArgs(2),
@@ -147,7 +162,13 @@ Supported keys:
 				cfg.MirrorMap[reg] = mirrors
 			}
 		case "insecure-registries":
-			cfg.InsecureRegistries = strings.Split(value, ",")
+			var list []string
+			for _, s := range strings.Split(value, ",") {
+				if s = strings.TrimSpace(s); s != "" {
+					list = append(list, s)
+				}
+			}
+			cfg.InsecureRegistries = list
 		case "parallelism":
 			n := 0
 			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 1 {
@@ -156,8 +177,8 @@ Supported keys:
 			cfg.Parallelism = n
 		case "layer-timeout":
 			n := 0
-			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 1 {
-				return fmt.Errorf("layer-timeout must be a positive integer")
+			if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+				return fmt.Errorf("layer-timeout must be 0 or a positive integer")
 			}
 			cfg.LayerTimeout = n
 		case "timeout":
@@ -182,6 +203,7 @@ Supported keys:
 var configListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List current configuration",
+	Long:  "Display all configuration values: mirror map, parallelism, timeouts, retry, and insecure registries.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -218,22 +240,24 @@ func init() {
 	configCmd.AddCommand(configListCmd)
 
 	saveCmd.Flags().StringVarP(&platform, "platform", "p", "",
-		"Target platform (e.g., linux/amd64, linux/arm64, windows/amd64)")
+		"Target platform (default: linux/amd64; e.g., linux/arm64, windows/amd64)")
 	saveCmd.Flags().StringVarP(&output, "output", "o", "", "Output tar file path")
 	saveCmd.Flags().StringVar(&username, "username", "", "Registry username")
 	saveCmd.Flags().StringVar(&password, "password", "", "Registry password (use --password-env for security)")
 	saveCmd.Flags().StringVar(&passwordEnv, "password-env", "IMG_REGISTRY_PASSWORD",
-		"Environment variable name for registry password")
+		"Environment variable name for registry password (--password takes priority if set)")
 	saveCmd.Flags().BoolVar(&insecure, "insecure", false,
 		"Allow insecure registry connections (skip TLS verify)")
 	saveCmd.Flags().IntVarP(&parallelism, "parallel", "P", 0,
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
-	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (OS-specific default: %LOCALAPPDATA%/imgp/cache, ~/.cache/imgp, ~/Library/Caches/imgp)")
+	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)")
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
-	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes")
+	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&retryCount, "retry", 2, "Number of retries on network errors (0 = no retry)")
+
+	cacheCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific path)")
 }
 
 func cmdCacheDir() string {
@@ -255,25 +279,25 @@ func runSave(cmd *cobra.Command, args []string) error {
 	if parallelism > 0 {
 		par = parallelism
 	}
+	if par < 1 {
+		par = 4
+	}
 
 	lt := cfg.LayerTimeout
-	if lt == 0 {
-		lt = 30
-	}
-	if layerTimeoutMin > 0 {
+	if cmd.Flags().Changed("layer-timeout") {
 		lt = layerTimeoutMin
+	} else if lt == 0 {
+		lt = 30
 	}
 
 	to := timeoutMin
-	if to == 0 && cfg.Timeout > 0 {
+	if !cmd.Flags().Changed("timeout") && to == 0 && cfg.Timeout > 0 {
 		to = cfg.Timeout
 	}
 
 	rt := cfg.Retry
-	if retryCount > 0 {
+	if cmd.Flags().Changed("retry") {
 		rt = retryCount
-	} else if retryCount == 0 && cfg.Retry == 0 {
-		rt = 2
 	}
 
 	targetPlatform := platform
@@ -329,6 +353,11 @@ func runSave(cmd *cobra.Command, args []string) error {
 	img, ref, err := client.FetchImage(ctx, image, targetPlatform)
 	if err != nil {
 		return fmt.Errorf("fetch image: %w", err)
+	}
+
+	origRef, err := name.ParseReference(image)
+	if err != nil {
+		return fmt.Errorf("parse image reference: %w", err)
 	}
 
 	if !quiet {
@@ -402,7 +431,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 	if !quiet {
 		fmt.Printf("\r  exporting: 0%%")
 	}
-	err = saver.Export(ref, img, outPath, cachePathFn,
+	err = saver.Export(ctx, origRef, img, outPath, cachePathFn,
 		func(completed, total int64) {
 			if quiet {
 				return

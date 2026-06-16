@@ -11,10 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/spf13/cobra"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
@@ -26,7 +29,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-var guiPort string
+var guiPort = "19191"
 
 type layerStatus struct {
 	Index  int    `json:"index"`
@@ -139,8 +142,11 @@ func (p *pullProgress) setDone(outputPath string) {
 	p.OutputPath = outputPath
 }
 
-var guiProgress pullProgress
-var downloadCancel context.CancelFunc
+var (
+	guiProgressPtr atomic.Value
+	downloadCancel context.CancelFunc
+	cancelMu       sync.Mutex
+)
 
 var guiCmd = &cobra.Command{
 	Use:   "gui",
@@ -163,6 +169,7 @@ Use --port to change the port.`,
 
 func init() {
 	guiCmd.Flags().StringVarP(&guiPort, "port", "P", "19191", "Web GUI port (default: 19191)")
+	guiCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific path)")
 }
 
 func runGUI(cmd *cobra.Command, args []string) error {
@@ -180,12 +187,20 @@ func StartGUI() {
 	}()
 	err := serveGUI()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func openBrowser(url string) {
-	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	switch runtime.GOOS {
+	case "windows":
+		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		exec.Command("open", url).Start()
+	default:
+		exec.Command("xdg-open", url).Start()
+	}
 }
 
 func handleShutdown(w http.ResponseWriter, r *http.Request) {
@@ -197,15 +212,25 @@ func handleOpenFile(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
 		return
 	}
-	exec.Command("explorer", "/select,", req.Path).Start()
+	switch runtime.GOOS {
+	case "windows":
+		exec.Command("explorer", "/select,", req.Path).Start()
+	case "darwin":
+		exec.Command("open", "-R", req.Path).Start()
+	default:
+		exec.Command("xdg-open", filepath.Dir(req.Path)).Start()
+	}
 }
 
 func handleCancel(w http.ResponseWriter, r *http.Request) {
+	cancelMu.Lock()
 	if downloadCancel != nil {
 		downloadCancel()
 	}
+	cancelMu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
@@ -250,21 +275,39 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	guiProgress = pullProgress{progressData: progressData{Phase: "starting"}}
+	if req.Output != "" && (strings.Contains(req.Output, "..") || filepath.IsAbs(req.Output)) {
+		http.Error(w, "invalid output path: must be a relative filename without '..'", 400)
+		return
+	}
+
+	pp := &pullProgress{progressData: progressData{Phase: "starting"}}
+
+	cancelMu.Lock()
+	if downloadCancel != nil {
+		downloadCancel()
+	}
+	cancelMu.Unlock()
+
+	guiProgressPtr.Store(pp)
 
 	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		downloadCancel = cancel
-		defer func() {
-			downloadCancel = nil
-			cancel()
-		}()
-
 		cfg, err := config.Load()
 		if err != nil {
-			guiProgress.setError(fmt.Sprintf("load config: %v", err))
+			pp.setError(fmt.Sprintf("load config: %v", err))
 			return
 		}
+
+		var cancel context.CancelFunc
+		ctx := context.Background()
+		if cfg.Timeout > 0 {
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.Timeout)*time.Minute)
+		} else {
+			ctx, cancel = context.WithCancel(ctx)
+		}
+		cancelMu.Lock()
+		downloadCancel = cancel
+		cancelMu.Unlock()
+		defer cancel()
 
 		client := registry.NewClient(cfg).WithAuth(req.Username, req.Password).WithInsecure(req.Insecure)
 
@@ -282,20 +325,26 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 
 		img, ref, err := client.FetchImage(ctx, req.Image, plat)
 		if err != nil {
-			guiProgress.setError(fmt.Sprintf("fetch image: %v", err))
+			pp.setError(fmt.Sprintf("fetch image: %v", err))
+			return
+		}
+
+		origRef, err := name.ParseReference(req.Image)
+		if err != nil {
+			pp.setError(fmt.Sprintf("parse image: %v", err))
 			return
 		}
 
 		cd := cmdCacheDir()
 		if err := os.MkdirAll(cd, 0755); err != nil {
-			guiProgress.setError(fmt.Sprintf("create cache: %v", err))
+			pp.setError(fmt.Sprintf("create cache: %v", err))
 			return
 		}
 
 		layerFetcher := client.NewLayerFetcher(ref)
 		imgLayers, err := img.Layers()
 		if err != nil {
-			guiProgress.setError(fmt.Sprintf("get layers: %v", err))
+			pp.setError(fmt.Sprintf("get layers: %v", err))
 			return
 		}
 
@@ -304,12 +353,12 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		for i, l := range imgLayers {
 			digest, err := l.Digest()
 			if err != nil {
-				guiProgress.setError(fmt.Sprintf("get layer %d digest: %v", i, err))
+				pp.setError(fmt.Sprintf("get layer %d digest: %v", i, err))
 				return
 			}
 			size, err := l.Size()
 			if err != nil {
-				guiProgress.setError(fmt.Sprintf("get layer %d size: %v", i, err))
+				pp.setError(fmt.Sprintf("get layer %d size: %v", i, err))
 				return
 			}
 			dHex := digest.Hex
@@ -324,37 +373,48 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 			totalBytes += size
 		}
 
-		guiProgress.initLayers(len(tasks), totalBytes)
+		pp.initLayers(len(tasks), totalBytes)
 
-		pl := puller.NewPuller(cd)
-		eventCh, err := pl.Pull(ctx, tasks, 4)
+		p := cfg.Parallelism
+		if p < 1 {
+			p = 4
+		}
+		lt := cfg.LayerTimeout
+		if lt == 0 {
+			lt = 30
+		}
+		rt := cfg.Retry
+		pl := puller.NewPuller(cd).
+			WithLayerTimeout(time.Duration(lt)*time.Minute).
+			WithRetry(rt)
+		eventCh, err := pl.Pull(ctx, tasks, p)
 		if err != nil {
-			guiProgress.setError(fmt.Sprintf("start pull: %v", err))
+			pp.setError(fmt.Sprintf("start pull: %v", err))
 			return
 		}
 
 		for evt := range eventCh {
-			guiProgress.updateLayer(evt.Index, evt)
+			pp.updateLayer(evt.Index, evt)
 			if evt.Err != nil {
 				return
 			}
 		}
 
-		guiProgress.setPhase("exporting")
+		pp.setPhase("exporting")
 
 		cachePathFn := func(digest string) string {
 			return filepath.Join(cd, digest+".gz")
 		}
 
-		err = saver.Export(ref, img, outPath, cachePathFn, func(completed, total int64) {
-			guiProgress.setExport(completed, total)
+		err = saver.Export(ctx, origRef, img, outPath, cachePathFn, func(completed, total int64) {
+			pp.setExport(completed, total)
 		})
 		if err != nil {
-			guiProgress.setError(fmt.Sprintf("export: %v", err))
+			pp.setError(fmt.Sprintf("export: %v", err))
 			return
 		}
 
-		guiProgress.setDone(outPath)
+		pp.setDone(outPath)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -373,7 +433,22 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
-		s := guiProgress.snapshot()
+		ppv := guiProgressPtr.Load()
+		if ppv == nil {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+				time.Sleep(200 * time.Millisecond)
+			}
+			continue
+		}
+		pp, ok := ppv.(*pullProgress)
+		if !ok {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		s := pp.snapshot()
 		data, _ := json.Marshal(s)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
@@ -394,7 +469,7 @@ func handleProgress(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCache(w http.ResponseWriter, r *http.Request) {
-	cd := config.CacheDir()
+	cd := cmdCacheDir()
 
 	switch r.Method {
 	case http.MethodGet:
@@ -402,6 +477,9 @@ func handleCache(w http.ResponseWriter, r *http.Request) {
 		var fileCount int
 		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
+				if !strings.HasSuffix(e.Name(), ".gz") {
+					continue
+				}
 				fi, err := e.Info()
 				if err == nil && !e.IsDir() {
 					totalSize += fi.Size()
@@ -419,11 +497,19 @@ func handleCache(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		if entries, err := os.ReadDir(cd); err == nil {
 			for _, e := range entries {
-				os.RemoveAll(filepath.Join(cd, e.Name()))
+				if !strings.HasSuffix(e.Name(), ".gz") {
+					continue
+				}
+				if err := os.RemoveAll(filepath.Join(cd, e.Name())); err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
 			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		} else {
+			http.Error(w, err.Error(), 500)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -440,10 +526,17 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
+		mirrorMap := make(map[string]string)
+		for k, v := range cfg.MirrorMap {
+			mirrorMap[k] = strings.Join(v, "|")
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"mirror_map":          cfg.MirrorMap,
+			"mirror_map":          mirrorMap,
 			"insecure_registries": cfg.InsecureRegistries,
 			"parallelism":         cfg.Parallelism,
+			"layer_timeout":       cfg.LayerTimeout,
+			"timeout":             cfg.Timeout,
+			"retry":               cfg.Retry,
 		})
 
 	case http.MethodPost:
@@ -451,6 +544,9 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			MirrorMap         map[string]string `json:"mirror_map"`
 			InsecureRegistries []string         `json:"insecure_registries"`
 			Parallelism       int              `json:"parallelism"`
+			LayerTimeout      int              `json:"layer_timeout"`
+			Timeout           int              `json:"timeout"`
+			Retry             int              `json:"retry"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -460,14 +556,30 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		if req.MirrorMap != nil {
 			cfg.MirrorMap = make(map[string][]string)
 			for k, v := range req.MirrorMap {
-				cfg.MirrorMap[k] = []string{v}
+				if v == "" {
+					continue
+				}
+				cfg.MirrorMap[k] = strings.Split(v, "|")
 			}
 		}
 		if req.InsecureRegistries != nil {
 			cfg.InsecureRegistries = req.InsecureRegistries
 		}
 		if req.Parallelism > 0 {
+			if req.Parallelism > 64 {
+				http.Error(w, "parallelism must be <= 64", 400)
+				return
+			}
 			cfg.Parallelism = req.Parallelism
+		}
+		if req.LayerTimeout >= 0 {
+			cfg.LayerTimeout = req.LayerTimeout
+		}
+		if req.Timeout >= 0 {
+			cfg.Timeout = req.Timeout
+		}
+		if req.Retry >= 0 {
+			cfg.Retry = req.Retry
 		}
 
 		if err := cfg.Save(); err != nil {

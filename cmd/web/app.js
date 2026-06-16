@@ -1,8 +1,9 @@
 let eventSource = null;
 
-window.addEventListener('beforeunload', function() {
-  navigator.sendBeacon('/api/shutdown');
-});
+function escapeHtml(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 // Theme
 var currentTheme = localStorage.getItem('imgp-theme') || 'light';
@@ -72,7 +73,7 @@ function connectSSE() {
   };
 
   eventSource.onerror = function() {
-    eventSource.close();
+    // Let EventSource auto-reconnect
   };
 }
 
@@ -103,7 +104,8 @@ function updateProgress(data) {
     layerList.innerHTML = '';
     header.innerHTML = '';
     doneBox.style.display = 'block';
-    doneBox.innerHTML = '✅ 下载完成！已保存到 ' + data.outputPath +
+    var outPath = escapeHtml(data.outputPath);
+    doneBox.innerHTML = '✅ 下载完成！已保存到 ' + outPath +
       ' <button class="btn btn-success" onclick="openFileLocation(\'' + data.outputPath.replace(/'/g, "\\'") + '\')" style="margin-left:8px;padding:4px 12px;font-size:12px">📂 打开位置</button>';
     loadCacheInfo();
     return;
@@ -210,6 +212,10 @@ function showConfig() {
         });
       }
       document.getElementById('cfgParallelism').value = data.parallelism || 4;
+      document.getElementById('cfgInsecureRegistries').value = (data.insecure_registries || []).join(', ');
+      document.getElementById('cfgLayerTimeout').value = data.layer_timeout || 30;
+      document.getElementById('cfgTimeout').value = data.timeout || 0;
+      document.getElementById('cfgRetry').value = data.retry !== undefined ? data.retry : 2;
     });
 }
 
@@ -220,8 +226,8 @@ function hideConfig() {
 function addMirrorRow(reg, mirror) {
   const tbody = document.getElementById('mirrorTableBody');
   const tr = document.createElement('tr');
-  tr.innerHTML = '<td><input type="text" class="cfg-reg" value="' + (reg || '') + '" placeholder="docker.io"></td>' +
-    '<td><input type="text" class="cfg-mirror" value="' + (mirror || '') + '" placeholder="mirror.example.com"></td>' +
+  tr.innerHTML = '<td><input type="text" class="cfg-reg" value="' + escapeHtml(reg || '') + '" placeholder="docker.io"></td>' +
+    '<td><input type="text" class="cfg-mirror" value="' + escapeHtml(mirror || '') + '" placeholder="mirror.example.com"></td>' +
     '<td><button onclick="this.parentElement.parentElement.remove()" style="color:var(--danger);border:none;background:none;cursor:pointer;font-size:16px">×</button></td>';
   tbody.appendChild(tr);
 }
@@ -236,11 +242,24 @@ function saveConfig() {
   });
 
   const parallelism = parseInt(document.getElementById('cfgParallelism').value) || 4;
+  const insecureRaw = document.getElementById('cfgInsecureRegistries').value.trim();
+  const insecureRegistries = insecureRaw ? insecureRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+  const layerTimeout = parseInt(document.getElementById('cfgLayerTimeout').value) || 30;
+  const timeout = parseInt(document.getElementById('cfgTimeout').value) || 0;
+  const retry = parseInt(document.getElementById('cfgRetry').value);
+  const retryVal = isNaN(retry) ? 2 : retry;
 
   fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mirror_map: mirrorMap, parallelism: parallelism })
+    body: JSON.stringify({
+      mirror_map: mirrorMap,
+      parallelism: parallelism,
+      insecure_registries: insecureRegistries,
+      layer_timeout: layerTimeout,
+      timeout: timeout,
+      retry: retryVal
+    })
   })
   .then(r => r.json())
   .then(data => {

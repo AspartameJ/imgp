@@ -54,8 +54,9 @@ func (c *Client) transport(reg name.Registry) http.RoundTripper {
 		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		return t
 	}
+	regName := normalizeRegistry(reg.Name())
 	for _, ir := range c.cfg.InsecureRegistries {
-		if reg.Name() == ir || strings.HasSuffix(reg.Name(), ir) {
+		if regName == ir || strings.HasSuffix(regName, "."+ir) {
 			if t.TLSClientConfig == nil {
 				t.TLSClientConfig = &tls.Config{}
 			}
@@ -73,7 +74,8 @@ func (c *Client) authenticator(reg name.Registry) authn.Authenticator {
 			Password: c.password,
 		})
 	}
-	if a, ok := c.cfg.Auths[reg.Name()]; ok {
+	regName := normalizeRegistry(reg.Name())
+	if a, ok := c.cfg.Auths[regName]; ok {
 		password := a.Password
 		if a.PasswordEnv != "" {
 			if p, ok := os.LookupEnv(a.PasswordEnv); ok {

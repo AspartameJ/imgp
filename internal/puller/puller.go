@@ -48,9 +48,7 @@ func (p *Puller) WithNoCache(v bool) *Puller {
 }
 
 func (p *Puller) WithLayerTimeout(d time.Duration) *Puller {
-	if d > 0 {
-		p.layerTimeout = d
-	}
+	p.layerTimeout = d
 	return p
 }
 
@@ -91,6 +89,10 @@ func (p *Puller) Pull(
 	tasks []LayerTask,
 	parallel int,
 ) (<-chan PullEvent, error) {
+	if parallel < 1 {
+		parallel = 1
+	}
+
 	if err := os.MkdirAll(p.cacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
@@ -124,14 +126,21 @@ func (p *Puller) Pull(
 
 				cacheFile := filepath.Join(p.cacheDir, t.DigestHex+".gz")
 
-				if !p.noCache {
-					if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
-						sendEvent(ctx, ch, PullEvent{
-							Index: t.Index, Digest: t.DigestHex,
-							Bytes: t.Size, Total: t.Size, Status: "cached",
-						})
-						return
+	if !p.noCache {
+				if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
+					if f, e := os.Open(cacheFile); e == nil {
+						var magic [2]byte
+						f.Read(magic[:])
+						f.Close()
+						if magic[0] == 0x1f && magic[1] == 0x8b {
+							sendEvent(ctx, ch, PullEvent{
+								Index: t.Index, Digest: t.DigestHex,
+								Bytes: t.Size, Total: t.Size, Status: "cached",
+							})
+							return
+						}
 					}
+				}
 				}
 
 				os.Remove(cacheFile)
@@ -151,6 +160,10 @@ func (p *Puller) Pull(
 						backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 						select {
 						case <-ctx.Done():
+							sendEvent(context.Background(), ch, PullEvent{
+								Index: t.Index, Digest: t.DigestHex,
+								Err: ctx.Err(), Status: "error",
+							})
 							return
 						case <-time.After(backoff):
 						}
@@ -162,7 +175,13 @@ func (p *Puller) Pull(
 						}
 					}
 
-					layerCtx, cancel := context.WithTimeout(ctx, p.layerTimeout)
+					var layerCtx context.Context
+				var cancel context.CancelFunc
+				if p.layerTimeout > 0 {
+					layerCtx, cancel = context.WithTimeout(ctx, p.layerTimeout)
+				} else {
+					layerCtx, cancel = context.WithCancel(ctx)
+				}
 					rc, openErr := t.OpenLayer(layerCtx)
 					if openErr != nil {
 						cancel()

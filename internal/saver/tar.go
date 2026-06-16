@@ -1,6 +1,7 @@
 package saver
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -70,6 +71,14 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 	if fi, err := os.Stat(cacheFile); err != nil || fi.Size() != size {
 		return nil, fmt.Errorf("cached layer not found or incomplete: %s", cacheFile)
 	}
+	if f, err := os.Open(cacheFile); err == nil {
+		var magic [2]byte
+		f.Read(magic[:])
+		f.Close()
+		if magic[0] != 0x1f || magic[1] != 0x8b {
+			return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
+		}
+	}
 
 	return &fileLayer{
 		digest:    digest,
@@ -80,6 +89,7 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 }
 
 func Export(
+	ctx context.Context,
 	ref name.Reference,
 	img v1.Image,
 	outputPath string,
@@ -144,8 +154,16 @@ func Export(
 	progressDone := make(chan struct{})
 	go func() {
 		defer close(progressDone)
-		for update := range progressCh {
-			progressFn(update.Complete, update.Total)
+		for {
+			select {
+			case update, ok := <-progressCh:
+				if !ok {
+					return
+				}
+				progressFn(update.Complete, update.Total)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -154,11 +172,20 @@ func Export(
 	close(progressCh)
 	<-progressDone
 
+	if ctx.Err() != nil {
+		os.Remove(tmpPath)
+		return ctx.Err()
+	}
+
 	if writeErr != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("write tar: %w", writeErr)
 	}
 
+	if err := os.Remove(outputPath); err != nil && !os.IsNotExist(err) {
+		os.Remove(tmpPath)
+		return fmt.Errorf("remove existing output: %w", err)
+	}
 	if err := os.Rename(tmpPath, outputPath); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rename output: %w", err)

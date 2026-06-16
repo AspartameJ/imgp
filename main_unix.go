@@ -8,8 +8,10 @@ func isDoubleClick() bool {
 	if len(os.Args) > 1 {
 		return false
 	}
-	// On Unix, there's no GUI subsystem equivalent of -H=windowsgui,
-	// so double-click behavior doesn't apply.
-	fi, _ := os.Stdout.Stat()
-	return fi != nil && (fi.Mode()&os.ModeCharDevice) == 0
+	fiOut, _ := os.Stdout.Stat()
+	if fiOut == nil || (fiOut.Mode()&os.ModeCharDevice) != 0 {
+		return false
+	}
+	fiIn, _ := os.Stdin.Stat()
+	return fiIn != nil && (fiIn.Mode()&os.ModeCharDevice) == 0
 }

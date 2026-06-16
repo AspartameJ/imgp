@@ -94,6 +94,24 @@
         <label for="cfgParallelism">并行下载数</label>
         <input type="number" id="cfgParallelism" min="1" max="16">
       </div>
+      <div class="form-group">
+        <label for="cfgInsecureRegistries">非安全 Registry（逗号分隔）</label>
+        <input type="text" id="cfgInsecureRegistries" placeholder="registry.example.com">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="cfgLayerTimeout">单层超时（分钟）</label>
+        <input type="number" id="cfgLayerTimeout" min="1" value="30">
+      </div>
+      <div class="form-group">
+        <label for="cfgTimeout">全局超时（分钟，0=不限制）</label>
+        <input type="number" id="cfgTimeout" min="0" value="0">
+      </div>
+      <div class="form-group">
+        <label for="cfgRetry">重试次数</label>
+        <input type="number" id="cfgRetry" min="0" value="2">
+      </div>
     </div>
     <button class="btn btn-primary" onclick="saveConfig()" style="margin-top:12px">💾 保存配置</button>
     <span id="configStatus" style="margin-left:12px;color:var(--success)"></span>
