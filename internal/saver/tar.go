@@ -20,15 +20,15 @@ type fileLayer struct {
 	filepath  string
 }
 
-func (l *fileLayer) Digest() (v1.Hash, error)      { return l.digest, nil }
+func (l *fileLayer) Digest() (v1.Hash, error)            { return l.digest, nil }
 func (l *fileLayer) MediaType() (types.MediaType, error) { return l.mediaType, nil }
-func (l *fileLayer) Size() (int64, error)           { return l.size, nil }
+func (l *fileLayer) Size() (int64, error)                { return l.size, nil }
 func (l *fileLayer) Compressed() (io.ReadCloser, error) {
 	return os.Open(l.filepath)
 }
 
 type compressedImage struct {
-	configFile []byte
+	configFile  []byte
 	rawManifest []byte
 	mediaType   types.MediaType
 	layers      map[v1.Hash]partial.CompressedLayer
@@ -154,16 +154,8 @@ func Export(
 	progressDone := make(chan struct{})
 	go func() {
 		defer close(progressDone)
-		for {
-			select {
-			case update, ok := <-progressCh:
-				if !ok {
-					return
-				}
-				progressFn(update.Complete, update.Total)
-			case <-ctx.Done():
-				return
-			}
+		for update := range progressCh {
+			progressFn(update.Complete, update.Total)
 		}
 	}()
 

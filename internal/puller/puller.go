@@ -126,43 +126,43 @@ func (p *Puller) Pull(
 
 				cacheFile := filepath.Join(p.cacheDir, t.DigestHex+".gz")
 
-	if !p.noCache {
-				if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
-					if f, e := os.Open(cacheFile); e == nil {
-						var magic [2]byte
-						if _, err := f.Read(magic[:]); err != nil {
-							f.Close()
-							sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Err: fmt.Errorf("read cache: %w", err),
-							})
-							return
-						}
-						f.Close()
-						if magic[0] == 0x1f && magic[1] == 0x8b {
-							if !sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Bytes: t.Size, Total: t.Size, Status: "cached",
-							}) {
+				if !p.noCache {
+					if fi, err := os.Stat(cacheFile); err == nil && fi.Size() == t.Size {
+						if f, e := os.Open(cacheFile); e == nil {
+							var magic [2]byte
+							if _, err := f.Read(magic[:]); err != nil {
+								f.Close()
+								sendEvent(ctx, ch, PullEvent{
+									Index: t.Index, Digest: t.DigestHex,
+									Err: fmt.Errorf("read cache: %w", err),
+								})
 								return
 							}
-							return
+							f.Close()
+							if magic[0] == 0x1f && magic[1] == 0x8b {
+								if !sendEvent(ctx, ch, PullEvent{
+									Index: t.Index, Digest: t.DigestHex,
+									Bytes: t.Size, Total: t.Size, Status: "cached",
+								}) {
+									return
+								}
+								return
+							}
 						}
 					}
 				}
+
+				if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+					sendEvent(ctx, ch, PullEvent{
+						Index: t.Index, Digest: t.DigestHex,
+						Err: fmt.Errorf("remove cache: %w", err),
+					})
+					return
 				}
 
-			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-				sendEvent(ctx, ch, PullEvent{
-					Index: t.Index, Digest: t.DigestHex,
-					Err: fmt.Errorf("remove cache: %w", err),
-				})
-				return
-			}
-
-			if !sendEvent(ctx, ch, PullEvent{
-				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
-			}) {
+				if !sendEvent(ctx, ch, PullEvent{
+					Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
+				}) {
 					return
 				}
 
@@ -173,14 +173,16 @@ func (p *Puller) Pull(
 							break
 						}
 						backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+						timer := time.NewTimer(backoff)
 						select {
 						case <-ctx.Done():
+							timer.Stop()
 							sendEvent(context.Background(), ch, PullEvent{
 								Index: t.Index, Digest: t.DigestHex,
 								Err: ctx.Err(), Status: "error",
 							})
 							return
-						case <-time.After(backoff):
+						case <-timer.C:
 						}
 						if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
 							sendEvent(ctx, ch, PullEvent{
@@ -197,12 +199,12 @@ func (p *Puller) Pull(
 					}
 
 					var layerCtx context.Context
-				var cancel context.CancelFunc
-				if p.layerTimeout > 0 {
-					layerCtx, cancel = context.WithTimeout(ctx, p.layerTimeout)
-				} else {
-					layerCtx, cancel = context.WithCancel(ctx)
-				}
+					var cancel context.CancelFunc
+					if p.layerTimeout > 0 {
+						layerCtx, cancel = context.WithTimeout(ctx, p.layerTimeout)
+					} else {
+						layerCtx, cancel = context.WithCancel(ctx)
+					}
 					rc, openErr := t.OpenLayer(layerCtx)
 					if openErr != nil {
 						cancel()
@@ -277,7 +279,7 @@ func (p *Puller) Pull(
 
 				sendEvent(ctx, ch, PullEvent{
 					Index: t.Index, Digest: t.DigestHex,
-					Err: fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
+					Err:    fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
 					Status: "error",
 				})
 			}(task)

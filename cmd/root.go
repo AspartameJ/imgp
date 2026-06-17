@@ -21,24 +21,24 @@ import (
 )
 
 var (
-	platform    string
-	output      string
-	username    string
-	password    string
-	passwordEnv string
-	insecure    bool
-	parallelism int
-	quiet       bool
-	noCache     bool
-	cacheDir    string
-	timeoutMin  int
+	platform        string
+	output          string
+	username        string
+	password        string
+	passwordEnv     string
+	insecure        bool
+	parallelism     int
+	quiet           bool
+	noCache         bool
+	cacheDir        string
+	timeoutMin      int
 	layerTimeoutMin int
-	retryCount  int
+	retryCount      int
 )
 
 var rootCmd = &cobra.Command{
-	Use:     "imgp",
-	Short:   "Cross-platform Docker image pull and save tool",
+	Use:   "imgp",
+	Short: "Cross-platform Docker image pull and save tool",
 	Long: `A fast, cross-platform tool for pulling Docker images and saving them as tar archives.
 
 Supports multiple architectures (default: linux/amd64), parallel downloads,
@@ -114,8 +114,8 @@ var cacheClearCmd = &cobra.Command{
 					removed++
 				}
 				if err := os.RemoveAll(filepath.Join(cd, e.Name())); err != nil {
-				return fmt.Errorf("clear cache: %w", err)
-			}
+					return fmt.Errorf("clear cache: %w", err)
+				}
 			}
 		}
 		fmt.Printf("Cleared %d cached layers (%s)\n", removed, formatBytes(freed))
@@ -227,6 +227,7 @@ func Execute() {
 	defer cancel()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		cancel()
 		os.Exit(1)
 	}
 }
@@ -398,7 +399,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt)*time.Minute).WithRetry(rt)
+	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt) * time.Minute).WithRetry(rt)
 
 	eventCh, err := pl.Pull(ctx, tasks, par)
 	if err != nil {
@@ -482,16 +483,16 @@ type layerState struct {
 
 type progressDisplay struct {
 	quiet    bool
-	useANSI bool
+	useANSI  bool
 	mu       sync.Mutex
 	layers   []layerState
 	total    int64
 	hasError bool
 }
 
-func colorGreen(s string) string { return "\033[32m" + s + "\033[0m" }
-func colorRed(s string) string   { return "\033[31m" + s + "\033[0m" }
-func colorCyan(s string) string  { return "\033[36m" + s + "\033[0m" }
+func colorGreen(s string) string  { return "\033[32m" + s + "\033[0m" }
+func colorRed(s string) string    { return "\033[31m" + s + "\033[0m" }
+func colorCyan(s string) string   { return "\033[36m" + s + "\033[0m" }
 func colorYellow(s string) string { return "\033[33m" + s + "\033[0m" }
 
 func isTerminal() bool {

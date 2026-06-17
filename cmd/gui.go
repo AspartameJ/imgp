@@ -322,8 +322,8 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Output != "" && (strings.Contains(req.Output, "..") || filepath.IsAbs(req.Output)) {
-		http.Error(w, "invalid output path: must be a relative filename without '..'", 400)
+	if req.Output != "" && (strings.HasPrefix(req.Output, "..") || strings.Contains(req.Output, string(os.PathSeparator)+"..") || strings.Contains(req.Output, ".."+string(os.PathSeparator)) || filepath.IsAbs(req.Output)) {
+		http.Error(w, "invalid output path: must be a relative filename without path traversal", 400)
 		return
 	}
 
@@ -444,7 +444,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		}
 		rt := cfg.Retry
 		pl := puller.NewPuller(cd).
-			WithLayerTimeout(time.Duration(lt)*time.Minute).
+			WithLayerTimeout(time.Duration(lt) * time.Minute).
 			WithRetry(rt)
 		eventCh, err := pl.Pull(ctx, tasks, p)
 		if err != nil {
@@ -621,12 +621,12 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			MirrorMap         map[string]string `json:"mirror_map"`
-			InsecureRegistries []string         `json:"insecure_registries"`
-			Parallelism       int              `json:"parallelism"`
-			LayerTimeout      int              `json:"layer_timeout"`
-			Timeout           int              `json:"timeout"`
-			Retry             int              `json:"retry"`
+			MirrorMap          map[string]string `json:"mirror_map"`
+			InsecureRegistries []string          `json:"insecure_registries"`
+			Parallelism        int               `json:"parallelism"`
+			LayerTimeout       int               `json:"layer_timeout"`
+			Timeout            int               `json:"timeout"`
+			Retry              int               `json:"retry"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), 400)
