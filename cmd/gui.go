@@ -146,7 +146,35 @@ var (
 	guiProgressPtr atomic.Value
 	downloadCancel context.CancelFunc
 	cancelMu       sync.Mutex
+
+	sseConnCount  int64
+	shutdownTimer *time.Timer
+	shutdownMu    sync.Mutex
 )
+
+func startShutdownTimer(d time.Duration) {
+	shutdownMu.Lock()
+	defer shutdownMu.Unlock()
+	cancelMu.Lock()
+	active := downloadCancel != nil
+	cancelMu.Unlock()
+	if active {
+		return
+	}
+	if shutdownTimer != nil {
+		shutdownTimer.Stop()
+	}
+	shutdownTimer = time.AfterFunc(d, func() { os.Exit(0) })
+}
+
+func resetShutdownTimer() {
+	shutdownMu.Lock()
+	defer shutdownMu.Unlock()
+	if shutdownTimer != nil {
+		shutdownTimer.Stop()
+		shutdownTimer = nil
+	}
+}
 
 var guiCmd = &cobra.Command{
 	Use:   "gui",
@@ -302,6 +330,7 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	cancelMu.Unlock()
 
 	guiProgressPtr.Store(pp)
+	resetShutdownTimer()
 
 	go func() {
 		cfg, err := config.Load()
@@ -432,6 +461,14 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleProgress(w http.ResponseWriter, r *http.Request) {
+	atomic.AddInt64(&sseConnCount, 1)
+	resetShutdownTimer()
+	defer func() {
+		if atomic.AddInt64(&sseConnCount, -1) == 0 {
+			startShutdownTimer(5 * time.Second)
+		}
+	}()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
