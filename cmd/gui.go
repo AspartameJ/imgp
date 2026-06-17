@@ -458,7 +458,12 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		pp.setDone(outPath)
+		absPath, err := filepath.Abs(outPath)
+		if err != nil {
+			pp.setError(fmt.Sprintf("resolve path: %v", err))
+			return
+		}
+		pp.setDone(absPath)
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -557,7 +562,9 @@ func handleCache(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				if err := os.RemoveAll(filepath.Join(cd, e.Name())); err != nil {
-					http.Error(w, err.Error(), 500)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(500)
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 					return
 				}
 			}
@@ -567,7 +574,9 @@ func handleCache(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 		} else {
-			http.Error(w, err.Error(), 500)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(500)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		}
 
 	default:

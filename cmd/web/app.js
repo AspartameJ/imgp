@@ -194,9 +194,9 @@ function loadCacheInfo() {
 function clearCache() {
   if (!confirm('确定清空所有缓存？')) return;
   fetch('/api/cache', { method: 'POST' })
-    .then(r => r.json())
+    .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'unknown'); }); return r.json(); })
     .then(() => { loadCacheInfo(); })
-    .catch(() => alert('清空失败'));
+    .catch(err => alert('清空失败: ' + err.message));
 }
 
 function showConfig() {
