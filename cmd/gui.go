@@ -439,9 +439,6 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 			p = 4
 		}
 		lt := cfg.LayerTimeout
-		if lt == 0 {
-			lt = 30
-		}
 		rt := cfg.Retry
 		pl := puller.NewPuller(cd).
 			WithLayerTimeout(time.Duration(lt) * time.Minute).
