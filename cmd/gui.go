@@ -146,6 +146,7 @@ var (
 	guiProgressPtr atomic.Value
 	downloadCancel context.CancelFunc
 	cancelMu       sync.Mutex
+	downloadGen    int
 
 	sseConnCount  int64
 	shutdownTimer *time.Timer
@@ -332,12 +333,16 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	if downloadCancel != nil {
 		downloadCancel()
 	}
+	downloadCancel = nil
+	gen := downloadGen + 1
+	downloadGen = gen
 	cancelMu.Unlock()
 
 	guiProgressPtr.Store(pp)
 	resetShutdownTimer()
 
 	go func() {
+		myGen := gen
 		cfg, err := config.Load()
 		if err != nil {
 			pp.setError(fmt.Sprintf("load config: %v", err))
@@ -354,7 +359,14 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 		cancelMu.Lock()
 		downloadCancel = cancel
 		cancelMu.Unlock()
-		defer cancel()
+		defer func() {
+			cancel()
+			cancelMu.Lock()
+			if downloadGen == myGen {
+				downloadCancel = nil
+			}
+			cancelMu.Unlock()
+		}()
 
 		client := registry.NewClient(cfg).WithAuth(req.Username, req.Password).WithInsecure(req.Insecure)
 
