@@ -236,6 +236,11 @@ func openBrowser(url string) {
 }
 
 func handleShutdown(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"ok":true}`))
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	os.Exit(0)
 }
 
@@ -556,6 +561,9 @@ func handleCache(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		} else if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 		} else {

@@ -107,12 +107,6 @@ function updateProgress(data) {
     var outPath = escapeHtml(data.outputPath);
     doneBox.innerHTML = '✅ 下载完成！已保存到 ' + outPath +
       ' <button class="btn btn-success" onclick="openFileLocation(\'' + data.outputPath.replace(/'/g, "\\'") + '\')" style="margin-left:8px;padding:4px 12px;font-size:12px">📂 打开位置</button>';
-function shutdownServer() {
-  if (!confirm('确定关闭服务？')) return;
-  fetch('/api/shutdown', { method: 'POST' });
-}
-
-loadCacheInfo();
     return;
   }
 
@@ -180,6 +174,11 @@ function shortenDigest(s) {
 }
 
 function fmtSize(n) { return formatBytes(n); }
+
+function shutdownServer() {
+  if (!confirm('确定关闭服务？')) return;
+  fetch('/api/shutdown', { method: 'POST' });
+}
 
 function loadCacheInfo() {
   fetch('/api/cache')
