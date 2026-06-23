@@ -62,6 +62,9 @@ func (p *Puller) WithRetry(n int) *Puller {
 }
 
 func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return true

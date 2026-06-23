@@ -1,6 +1,7 @@
 package saver
 
 import (
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -69,8 +70,15 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 		return nil, err
 	}
 
-	if fi, err := os.Stat(cacheFile); err != nil || fi.Size() != size {
-		return nil, fmt.Errorf("cached layer not found or incomplete: %s: %w", cacheFile, err)
+	fi, err := os.Stat(cacheFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("cached layer not found: %s", cacheFile)
+		}
+		return nil, fmt.Errorf("access cached layer: %s: %w", cacheFile, err)
+	}
+	if fi.Size() != size {
+		return nil, fmt.Errorf("cached layer incomplete: %s: expected %d bytes, got %d", cacheFile, size, fi.Size())
 	}
 	f, err := os.Open(cacheFile)
 	if err != nil {
@@ -82,6 +90,25 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 		return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
 	}
 	f.Close()
+
+	// Full gzip integrity check: decompress and verify CRC
+	gf, err := os.Open(cacheFile)
+	if err != nil {
+		return nil, fmt.Errorf("open cached layer: %w", err)
+	}
+	gr, err := gzip.NewReader(gf)
+	if err != nil {
+		gf.Close()
+		return nil, fmt.Errorf("cached layer corrupted (invalid gzip): %s: %w", cacheFile, err)
+	}
+	if _, err := io.Copy(io.Discard, gr); err != nil {
+		gr.Close()
+		gf.Close()
+		os.Remove(cacheFile)
+		return nil, fmt.Errorf("cached layer corrupted (gzip CRC mismatch): %s: %w", cacheFile, err)
+	}
+	gr.Close()
+	gf.Close()
 
 	return &fileLayer{
 		digest:    digest,

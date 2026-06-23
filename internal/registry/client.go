@@ -171,6 +171,9 @@ func normalizeRegistry(reg string) string {
 }
 
 func isRetryableFetch(err error) bool {
+	if err == nil {
+		return false
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return true
@@ -278,6 +281,6 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 			return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
 		}
 	}
-
+	// Keep compiler happy: loop always returns, but Go can't prove c.retry >= 0
 	return nil, nil, fmt.Errorf("all registries failed: %v", lastErr)
 }

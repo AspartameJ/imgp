@@ -47,18 +47,20 @@ built-in mirror acceleration, and layer caching.`,
 }
 
 var saveCmd = &cobra.Command{
-	Use:   "save [image]",
-	Short: "Pull a Docker image and save it as a tar archive",
-	Long: `Pull a Docker image from a registry (with mirror acceleration support)
-and save it as a Docker-compatible tar archive.
+	Use:   "save [image...]",
+	Short: "Pull Docker images and save them as tar archives",
+	Long: `Pull Docker images from a registry (with mirror acceleration support)
+and save them as Docker-compatible tar archives.
 
 Supports multi-architecture images, parallel downloads, and layer caching.
+Multiple images can be specified for batch download.
 
 Examples:
   imgp save hello-world:latest -o hello-world.tar
   imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
-  imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env`,
-	Args: cobra.ExactArgs(1),
+  imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env
+  imgp save registry.k8s.io/kube-apiserver:v1.34.9 registry.k8s.io/kube-scheduler:v1.34.9`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runSave,
 }
 
@@ -276,12 +278,41 @@ func cmdCacheDir() string {
 }
 
 func runSave(cmd *cobra.Command, args []string) error {
-	image := args[0]
-
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if len(args) == 1 {
+		return runSaveOne(cmd, cfg, args[0], "")
+	}
+	if output != "" {
+		return fmt.Errorf("cannot use -o/--output with multiple images; each image gets an auto-named tar")
+	}
+	total := len(args)
+	var errs []string
+	for i, image := range args {
+		if cmd.Context().Err() != nil {
+			errs = append(errs, fmt.Sprintf("%s: canceled by user", image))
+			break
+		}
+		if i > 0 {
+			if isTerminal() {
+				fmt.Print("\033[J")
+			}
+			fmt.Println()
+		}
+		batchInfo := fmt.Sprintf("[%d/%d] ", i+1, total)
+		if err := runSaveOne(cmd, cfg, image, batchInfo); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", image, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("batch download completed with errors:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo string) error {
 
 	par := cfg.Parallelism
 	if parallelism > 0 {
@@ -368,9 +399,9 @@ func runSave(cmd *cobra.Command, args []string) error {
 	// Phase 1: Pull
 	if !quiet {
 		if isTerminal() {
-			fmt.Printf("%s %s (%s)\n", colorCyan("⟳ Pulling"), image, targetPlatform)
+			fmt.Printf("%s%s %s (%s)\n", batchInfo, colorCyan("⟳ Pulling"), image, targetPlatform)
 		} else {
-			fmt.Printf("Pulling %s (%s)\n", image, targetPlatform)
+			fmt.Printf("%sPulling %s (%s)\n", batchInfo, image, targetPlatform)
 		}
 	}
 
@@ -481,10 +512,6 @@ func runSave(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
-	if !quiet {
-		fmt.Println()
-	}
-
 	if !quiet {
 		if isTerminal() {
 			fmt.Printf("\n%s %s (%s) saved to %s\n", colorGreen("✓ Done:"), image, targetPlatform, outPath)
