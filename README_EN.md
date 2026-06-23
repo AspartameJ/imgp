@@ -133,23 +133,6 @@ Custom directory:
 imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
 ```
 
-### `imgp gui` — Web GUI
-
-```bash
-# Start GUI (default port 19191)
-imgp gui
-
-# Custom port
-imgp gui -P 9000
-```
-
-Features in the browser:
-
-- Enter image name, select platform, click download
-- Real-time per-layer progress bars
-- Add/remove mirror acceleration entries
-- View and clear cache
-
 ### `imgp config` — Configuration
 
 ```bash
@@ -238,12 +221,9 @@ With multiple layers:
 
 # Build all 6 platforms (for release)
 .\build.ps1 -All
-
-# Build GUI edition (double-click to start, no console window)
-.\build.ps1 -GUI
 ```
 
-Output goes to `bin\` directory. GUI file: `imgp-windows-amd64-gui.exe`.
+Output goes to `bin\` directory.
 
 ### Linux / macOS
 

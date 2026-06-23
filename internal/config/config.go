@@ -15,13 +15,13 @@ type AuthConfig struct {
 }
 
 type Config struct {
-	MirrorMap         map[string][]string `json:"mirror_map"`
-	Auths             map[string]AuthConfig `json:"auths,omitempty"`
-	InsecureRegistries []string           `json:"insecure_registries,omitempty"`
-	Parallelism       int                 `json:"parallelism"`
-	LayerTimeout      int                 `json:"layer_timeout,omitempty"`
-	Timeout           int                 `json:"timeout,omitempty"`
-	Retry             int                 `json:"retry,omitempty"`
+	MirrorMap          map[string][]string   `json:"mirror_map"`
+	Auths              map[string]AuthConfig `json:"auths,omitempty"`
+	InsecureRegistries []string              `json:"insecure_registries,omitempty"`
+	Parallelism        int                   `json:"parallelism"`
+	LayerTimeout       int                   `json:"layer_timeout,omitempty"`
+	Timeout            int                   `json:"timeout,omitempty"`
+	Retry              int                   `json:"retry,omitempty"`
 
 	configPath string
 }
@@ -29,8 +29,9 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		MirrorMap: map[string][]string{
-			"docker.io": {"docker.m.daocloud.io"},
-			"gcr.io":    {"gcr.mirrors.daocloud.io"},
+			"docker.io":       {"docker.m.daocloud.io"},
+			"gcr.io":          {"gcr.mirrors.daocloud.io"},
+			"registry.k8s.io": {"m.daocloud.io/registry.k8s.io"},
 		},
 		Parallelism: 4,
 	}
@@ -41,7 +42,9 @@ func ConfigPath() string {
 	if err == nil {
 		return filepath.Join(filepath.Dir(exe), "imgp.json")
 	}
-	// Fall back to current directory
+	if wd, err := os.Getwd(); err == nil {
+		return filepath.Join(wd, "imgp.json")
+	}
 	return filepath.Join(".", "imgp.json")
 }
 
@@ -61,10 +64,25 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	if cfg.Parallelism < 1 {
+		cfg.Parallelism = 4
+	}
+	if cfg.LayerTimeout < 0 {
+		cfg.LayerTimeout = 0
+	}
+	if cfg.Timeout < 0 {
+		cfg.Timeout = 0
+	}
+	if cfg.Retry < 0 {
+		cfg.Retry = 0
+	}
+
 	return cfg, nil
 }
 
 func (c *Config) Save() error {
+	// Password fields are intentionally not persisted for security.
+	// Use PasswordEnv to reference a secure environment variable instead.
 	saveCfg := *c
 	saveCfg.Auths = make(map[string]AuthConfig, len(c.Auths))
 	for k, v := range c.Auths {
@@ -77,7 +95,7 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.configPath, data, 0644)
+	return os.WriteFile(c.configPath, data, 0600)
 }
 
 func CacheDir() string {
@@ -102,5 +120,5 @@ func CacheDir() string {
 		}
 	}
 	// Fallback
-	return filepath.Join(".", ".imgp-cache")
+	return filepath.Join(os.TempDir(), "imgp-cache")
 }

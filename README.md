@@ -154,23 +154,6 @@ imgp cache clear
 imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ```
 
-### `imgp gui` — Web 图形界面
-
-```bash
-# 启动 GUI（默认端口 19191）
-imgp gui
-
-# 指定端口
-imgp gui -P 9000
-```
-
-打开浏览器后，你可以：
-
-- 输入镜像名、选择平台、点击下载
-- 实时查看每层的下载进度条
-- 在配置页面增删镜像加速地址
-- 查看和清空缓存
-
 ### `imgp config` — 配置管理
 
 ```bash
@@ -267,12 +250,9 @@ Done: hello-world:latest saved to hello-world.tar
 
 # 编译全部 6 个平台（发布用）
 .\build.ps1 -All
-
-# 编译 GUI 版（双击启动，无控制台窗口）
-.\build.ps1 -GUI
 ```
 
-编译产物在 `bin\` 目录下。GUI 版文件名为 `imgp-windows-amd64-gui.exe`。
+编译产物在 `bin\` 目录下。
 
 ### Linux / macOS
 

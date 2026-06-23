@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,10 +25,11 @@ type Client struct {
 	username string
 	password string
 	insecure bool
+	retry    int
 }
 
 func NewClient(cfg *config.Config) *Client {
-	return &Client{cfg: cfg}
+	return &Client{cfg: cfg, retry: 2}
 }
 
 func (c *Client) WithAuth(username, password string) *Client {
@@ -41,8 +43,19 @@ func (c *Client) WithInsecure(v bool) *Client {
 	return c
 }
 
+func (c *Client) WithRetry(n int) *Client {
+	if n >= 0 {
+		c.retry = n
+	}
+	return c
+}
+
 func (c *Client) transport(reg name.Registry) http.RoundTripper {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+	dt, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	t := dt.Clone()
 	t.MaxConnsPerHost = 100
 	t.ResponseHeaderTimeout = 30 * time.Second
 	t.TLSHandshakeTimeout = 10 * time.Second
@@ -108,11 +121,17 @@ func parsePlatform(platform string) *v1.Platform {
 	}
 	p := &v1.Platform{}
 	if strings.Contains(platform, "/") {
-		parts := strings.SplitN(platform, "/", 3)
-		p.OS = parts[0]
-		if len(parts) > 1 {
-			p.Architecture = parts[1]
+		parts := strings.Split(platform, "/")
+		for _, part := range parts {
+			if part == "" {
+				return nil
+			}
 		}
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil
+		}
+		p.OS = parts[0]
+		p.Architecture = parts[1]
 		if len(parts) > 2 {
 			p.Variant = parts[2]
 		}
@@ -128,7 +147,8 @@ func parsePlatform(platform string) *v1.Platform {
 func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, digestHex string) (io.ReadCloser, error) {
 	repo := ref.Context()
 	return func(ctx context.Context, digestHex string) (io.ReadCloser, error) {
-		digestRef := repo.Digest("sha256:" + digestHex)
+		hex := strings.TrimPrefix(digestHex, "sha256:")
+		digestRef := repo.Digest("sha256:" + hex)
 		reg := digestRef.Context().Registry
 		l, err := remote.Layer(digestRef,
 			remote.WithAuth(c.authenticator(reg)),
@@ -148,6 +168,28 @@ func normalizeRegistry(reg string) string {
 		return "docker.io"
 	}
 	return reg
+}
+
+func isRetryableFetch(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "unexpected status code 4") {
+		return false
+	}
+	retryable := []string{"unexpected EOF", "connection reset", "connection refused",
+		"TLS handshake", "broken pipe"}
+	for _, s := range retryable {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	if strings.Contains(msg, "unexpected status code 5") {
+		return true
+	}
+	return false
 }
 
 func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Image, name.Reference, error) {
@@ -180,25 +222,62 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 
 	plat := parsePlatform(platform)
 
-	var errs []string
-	for _, r := range refsToTry {
-		reg := r.Context().Registry
-		opts := []remote.Option{
-			remote.WithAuth(c.authenticator(reg)),
-			remote.WithTransport(c.transport(reg)),
-			remote.WithContext(ctx),
-		}
-		if plat != nil {
-			opts = append(opts, remote.WithPlatform(*plat))
+	origAuth := c.authenticator(ref.Context().Registry)
+
+	var lastErr error
+	for attempt := 0; attempt <= c.retry; attempt++ {
+		if attempt > 0 {
+			if !isRetryableFetch(lastErr) {
+				break
+			}
+			shift := attempt - 1
+			const maxShift = 30
+			if shift > maxShift {
+				shift = maxShift
+			}
+			backoff := time.Duration(1<<uint(shift)) * time.Second
+			const maxBackoff = 30 * time.Second
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, nil, ctx.Err()
+			case <-timer.C:
+			}
 		}
 
-		img, err := remote.Image(r, opts...)
-		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
-			continue
+		var errs []string
+		for _, r := range refsToTry {
+			reg := r.Context().Registry
+			auth := c.authenticator(reg)
+			if c.username == "" && auth == authn.Anonymous && origAuth != authn.Anonymous {
+				auth = origAuth
+			}
+			opts := []remote.Option{
+				remote.WithAuth(auth),
+				remote.WithTransport(c.transport(reg)),
+				remote.WithContext(ctx),
+			}
+			if plat != nil {
+				opts = append(opts, remote.WithPlatform(*plat))
+			}
+
+			img, err := remote.Image(r, opts...)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
+				lastErr = err
+				continue
+			}
+			return img, r, nil
 		}
-		return img, r, nil
+
+		if attempt == c.retry || !isRetryableFetch(lastErr) {
+			return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
+		}
 	}
 
-	return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
+	return nil, nil, fmt.Errorf("all registries failed: %v", lastErr)
 }

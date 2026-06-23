@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -69,16 +70,18 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 	}
 
 	if fi, err := os.Stat(cacheFile); err != nil || fi.Size() != size {
-		return nil, fmt.Errorf("cached layer not found or incomplete: %s", cacheFile)
+		return nil, fmt.Errorf("cached layer not found or incomplete: %s: %w", cacheFile, err)
 	}
-	if f, err := os.Open(cacheFile); err == nil {
-		var magic [2]byte
-		if _, err := f.Read(magic[:]); err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
-			f.Close()
-			return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
-		}
+	f, err := os.Open(cacheFile)
+	if err != nil {
+		return nil, fmt.Errorf("open cached layer: %w", err)
+	}
+	var magic [2]byte
+	if _, err := f.Read(magic[:]); err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
 		f.Close()
+		return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
 	}
+	f.Close()
 
 	return &fileLayer{
 		digest:    digest,
@@ -96,6 +99,9 @@ func Export(
 	cachePathFn func(digest string) string,
 	progressFn func(completed, total int64),
 ) error {
+	if fi, err := os.Stat(outputPath); err == nil && fi.IsDir() {
+		return fmt.Errorf("output path is a directory: %s", outputPath)
+	}
 	layers, err := img.Layers()
 	if err != nil {
 		return fmt.Errorf("get layers: %w", err)
@@ -145,6 +151,9 @@ func Export(
 	}
 
 	tmpPath := outputPath + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
+	}
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("create output file: %w", err)
@@ -153,25 +162,29 @@ func Export(
 	progressCh := make(chan v1.Update, 100)
 	progressDone := make(chan struct{})
 	go func() {
-		defer close(progressDone)
+		defer func() { recover(); close(progressDone) }()
 		for update := range progressCh {
 			progressFn(update.Complete, update.Total)
 		}
 	}()
 
 	writeErr := tarball.Write(ref, v1Img, f, tarball.WithProgress(progressCh))
-	f.Close()
 	close(progressCh)
 	<-progressDone
-
-	if ctx.Err() != nil {
-		os.Remove(tmpPath)
-		return ctx.Err()
-	}
+	closeErr := f.Close()
 
 	if writeErr != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("write tar: %w", writeErr)
+	}
+	if closeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close tar: %w", closeErr)
+	}
+
+	if ctx.Err() != nil {
+		os.Remove(tmpPath)
+		return ctx.Err()
 	}
 
 	if err := os.Remove(outputPath); err != nil && !os.IsNotExist(err) {

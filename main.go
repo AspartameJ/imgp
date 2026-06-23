@@ -5,9 +5,5 @@ import (
 )
 
 func main() {
-	if isDoubleClick() {
-		cmd.StartGUI()
-		return
-	}
 	cmd.Execute()
 }

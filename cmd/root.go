@@ -43,7 +43,7 @@ var rootCmd = &cobra.Command{
 
 Supports multiple architectures (default: linux/amd64), parallel downloads,
 built-in mirror acceleration, and layer caching.`,
-	Version: "1.4.0",
+	Version: "2.0.0",
 }
 
 var saveCmd = &cobra.Command{
@@ -81,8 +81,11 @@ var cacheInfoCmd = &cobra.Command{
 				if !strings.HasSuffix(e.Name(), ".gz") {
 					continue
 				}
+				if e.IsDir() {
+					continue
+				}
 				fi, err := e.Info()
-				if err == nil && !e.IsDir() {
+				if err == nil {
 					totalSize += fi.Size()
 					fileCount++
 				}
@@ -108,12 +111,15 @@ var cacheClearCmd = &cobra.Command{
 				if !strings.HasSuffix(e.Name(), ".gz") {
 					continue
 				}
+				if e.IsDir() {
+					continue
+				}
 				fi, err := e.Info()
-				if err == nil && !e.IsDir() {
+				if err == nil {
 					freed += fi.Size()
 					removed++
 				}
-				if err := os.RemoveAll(filepath.Join(cd, e.Name())); err != nil {
+				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil {
 					return fmt.Errorf("clear cache: %w", err)
 				}
 			}
@@ -234,7 +240,6 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
-	rootCmd.AddCommand(guiCmd)
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheInfoCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
@@ -302,6 +307,9 @@ func runSave(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("retry") {
 		rt = retryCount
 	}
+	if rt > 30 {
+		rt = 30
+	}
 
 	targetPlatform := platform
 	if targetPlatform == "" {
@@ -310,6 +318,17 @@ func runSave(cmd *cobra.Command, args []string) error {
 		parts := strings.Split(targetPlatform, "/")
 		if len(parts) < 2 || len(parts) > 3 {
 			return fmt.Errorf("invalid platform format %q, expected os/arch or os/arch/variant (e.g. linux/amd64, linux/arm64/v8)", targetPlatform)
+		}
+		for _, p := range parts {
+			if p == "" {
+				return fmt.Errorf("invalid platform format %q: empty segment", targetPlatform)
+			}
+		}
+		if !isValidArch(parts[1]) {
+			if s := archSuggestion(parts[1]); s != "" {
+				return fmt.Errorf("unknown architecture %q in platform %q, did you mean %q?", parts[1], targetPlatform, s)
+			}
+			return fmt.Errorf("unknown architecture %q in platform %q, valid values: 386, amd64, arm, arm64, loong64, mips, mips64, mips64le, mipsle, ppc64, ppc64le, riscv64, s390x, wasm", parts[1], targetPlatform)
 		}
 	}
 
@@ -325,6 +344,8 @@ func runSave(cmd *cobra.Command, args []string) error {
 		name := strings.ReplaceAll(strings.ReplaceAll(image, "/", "_"), ":", "_")
 		plat := strings.ReplaceAll(targetPlatform, "/", "-")
 		outPath = fmt.Sprintf("%s_%s.tar", name, plat)
+	} else {
+		outPath = filepath.Clean(outPath)
 	}
 
 	// Create cache directory
@@ -334,7 +355,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create registry client
-	client := registry.NewClient(cfg).WithAuth(username, pass).WithInsecure(insecure)
+	client := registry.NewClient(cfg).WithAuth(username, pass).WithInsecure(insecure).WithRetry(rt)
 
 	// Apply overall timeout to entire operation (fetch + pull)
 	ctx := cmd.Context()
@@ -355,6 +376,9 @@ func runSave(cmd *cobra.Command, args []string) error {
 
 	img, ref, err := client.FetchImage(ctx, image, targetPlatform)
 	if err != nil {
+		if strings.Contains(err.Error(), "dial tcp") || strings.Contains(err.Error(), "i/o timeout") {
+			return fmt.Errorf("fetch image: %w\n  		tip: check network/proxy or try with a mirror (e.g. `imgp config set mirror-map registry.k8s.io=m.daocloud.io/registry.k8s.io`)", err)
+		}
 		return fmt.Errorf("fetch image: %w", err)
 	}
 
@@ -415,12 +439,17 @@ func runSave(cmd *cobra.Command, args []string) error {
 	copy(layers, progress.layers)
 	progress.mu.Unlock()
 	if hasError {
+		var errs []string
 		for _, ls := range layers {
-			if ls.status == "error" && ls.errMsg != "" {
-				return fmt.Errorf("layer %s download failed: %s", shorten(ls.digest, 12), ls.errMsg)
+			if ls.status == "error" {
+				if ls.errMsg != "" {
+					errs = append(errs, fmt.Sprintf("layer %s: %s", shorten(ls.digest, 12), ls.errMsg))
+				} else {
+					errs = append(errs, fmt.Sprintf("layer %s: unknown error", shorten(ls.digest, 12)))
+				}
 			}
 		}
-		return fmt.Errorf("layer download failed")
+		return fmt.Errorf("layer download failed:\n  %s", strings.Join(errs, "\n  "))
 	}
 
 	// Phase 2: Export
@@ -444,10 +473,7 @@ func runSave(cmd *cobra.Command, args []string) error {
 			if quiet {
 				return
 			}
-			percent := float64(0)
-			if total > 0 {
-				percent = float64(completed) / float64(total) * 100
-			}
+			percent := float64(completed) / float64(total) * 100
 			fmt.Printf("\r  exporting: %.0f%% | %s / %s",
 				percent, formatBytes(completed), formatBytes(total))
 		},
@@ -510,7 +536,7 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 	if p.quiet {
 		p.layers = make([]layerState, len(tasks))
 		go func() {
-			defer close(quit)
+			defer func() { recover(); close(quit) }()
 			for evt := range eventCh {
 				p.mu.Lock()
 				if evt.Err != nil {
@@ -543,7 +569,7 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 
 	readerDone := make(chan struct{})
 	go func() {
-		defer close(readerDone)
+		defer func() { recover(); close(readerDone) }()
 		for evt := range eventCh {
 			p.mu.Lock()
 			if evt.Index < len(p.layers) {
@@ -591,18 +617,19 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 				percent = float64(currentBytes) / float64(p.total) * 100
 			}
 
+			var buf strings.Builder
 			if p.useANSI && prevLayers > 0 {
-				fmt.Printf("\033[%dA", prevLayers)
+				fmt.Fprintf(&buf, "\033[%dA", prevLayers)
 			}
 
 			if p.useANSI {
-				fmt.Printf("\033[2K\r  layers: [%d/%d] %.1f%% | %s / %s\n",
+				fmt.Fprintf(&buf, "\033[2K\r  layers: [%d/%d] %.1f%% | %s / %s\n",
 					doneLayers, totalLayers, percent,
 					formatBytes(currentBytes), formatBytes(p.total))
 			} else {
-				fmt.Printf("\r  layers: [%d/%d] %.1f%% | %s / %s",
+				buf.WriteString(fmt.Sprintf("\r  layers: [%d/%d] %.1f%% | %s / %s",
 					doneLayers, totalLayers, percent,
-					formatBytes(currentBytes), formatBytes(p.total))
+					formatBytes(currentBytes), formatBytes(p.total)))
 			}
 
 			if p.useANSI {
@@ -611,11 +638,11 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 					bar := renderBar(ls.current, ls.total, 30)
 					switch ls.status {
 					case "cached":
-						fmt.Printf("\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), colorGreen("(cached)"))
+						fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), colorGreen("(cached)"))
 					case "done":
-						fmt.Printf("\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), bar)
+						fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", colorGreen("✓"), shorten(ls.digest, 12), bar)
 					case "downloading":
-						fmt.Printf("\033[2K\r    %s %s %s %s/%s\n",
+						fmt.Fprintf(&buf, "\033[2K\r    %s %s %s %s/%s\n",
 							colorCyan("◌"), shorten(ls.digest, 12), bar,
 							formatBytes(ls.current), formatBytes(ls.total))
 					case "error":
@@ -623,13 +650,14 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 						if ls.errMsg != "" {
 							msg = ls.errMsg
 						}
-						fmt.Printf("\033[2K\r    %s %s %s\n", colorRed("✗"), shorten(ls.digest, 12), colorRed(msg))
+						fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", colorRed("✗"), shorten(ls.digest, 12), colorRed(msg))
 					default:
-						fmt.Printf("\033[2K\r    %s %s waiting...\n", colorYellow("·"), shorten(ls.digest, 12))
+						fmt.Fprintf(&buf, "\033[2K\r    %s %s waiting...\n", colorYellow("·"), shorten(ls.digest, 12))
 					}
 				}
 			}
 			p.mu.Unlock()
+			fmt.Print(buf.String())
 
 			if allDone {
 				return quit
@@ -642,6 +670,9 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 }
 
 func shorten(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
 	}
@@ -670,6 +701,34 @@ func formatBytes(b int64) string {
 	}
 }
 
+func isValidArch(arch string) bool {
+	switch arch {
+	case "386", "amd64", "arm", "arm64", "loong64", "mips",
+		"mips64", "mips64le", "mipsle", "ppc64", "ppc64le",
+		"riscv64", "s390x", "wasm":
+		return true
+	}
+	return false
+}
+
+func archSuggestion(arch string) string {
+	switch arch {
+	case "aarch64":
+		return "arm64"
+	case "x86_64":
+		return "amd64"
+	case "amd":
+		return "amd64"
+	case "i386", "i686":
+		return "386"
+	case "armv7", "armv7l":
+		return "arm"
+	case "armv8", "arm64v8":
+		return "arm64"
+	}
+	return ""
+}
+
 func renderBar(current, total int64, width int) string {
 	if total == 0 {
 		return strings.Repeat("░", width)
@@ -682,9 +741,6 @@ func renderBar(current, total int64, width int) string {
 		filled = 0
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	percent := float64(0)
-	if total > 0 {
-		percent = float64(current) / float64(total) * 100
-	}
+	percent := float64(current) / float64(total) * 100
 	return fmt.Sprintf("%s %.0f%%", bar, percent)
 }

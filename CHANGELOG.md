@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.0.0 (2026-06-23)
+
+### Removed
+- **Web GUI** — 完全移除 `imgp gui` 子命令及相关 697 行代码，专注 CLI 工具
+- **GUI 前端** — 删除 `cmd/web/` 目录（`index.html`、`app.js`、`style.css`）
+- **双击启动** — 删除 `main_windows.go` 和 `main_unix.go`，`main.go` 直接调用 CLI
+- **GUI 构建** — `build.ps1` 不再支持 `-GUI` 参数和 `-H=windowsgui` 链接标志
+
+### Fixed
+- **`--retry` 覆盖 manifest 拉取** — `FetchImage` 新增重试循环，`--retry` 参数同时作用于 manifest 获取和层下载
+- **`--platform` 校验** — 拒绝 `linux/aarch64` 等无效架构名，提示 `did you mean "arm64"?`
+- **`--retry` 上限** — `--retry` 最大值限制为 30，防止 `1 << n` 溢出
+- **镜像回退认证** — 镜像地址回退时传递原始 registry 认证信息，支持带认证的镜像加速
+- **goroutine panic 未恢复** — 静默模式错误协程和 tar 导出 reader 协程添加 `recover()`，避免 panic 导致进程崩溃
+- **默认镜像地址** — `registry.k8s.io` 镜像从 `registry-k8s-io.m.daocloud.io` 修正为 `m.daocloud.io/registry.k8s.io`
+- **网络错误提示** — 连接失败时增加镜像建议提示（如 `imgp config set mirror-map registry.k8s.io=m.daocloud.io/registry.k8s.io`）
+- **`--retry` 指数退避溢出** — `1 << n` 最大移位限制为 30，防止超大镜像下载超时时间溢出为负数
+- **平台解析** — `SplitN("linux/arm64/v8", "/", 2)` → `Split("/")`，正确支持三段式平台格式
+
+### Changed
+- **精简** — 项目代码从 ~1600 行减少至 ~900 行，删除 40+ 处 GUI 相关 bug
+
 ## v1.4.0 (2026-06-09)
 
 ### Added

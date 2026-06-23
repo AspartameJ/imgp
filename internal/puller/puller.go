@@ -2,8 +2,10 @@ package puller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,17 +62,23 @@ func (p *Puller) WithRetry(n int) *Puller {
 }
 
 func isRetryable(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
 	msg := err.Error()
-	if strings.Contains(msg, "403") || strings.Contains(msg, "401") ||
-		strings.Contains(msg, "404") || strings.Contains(msg, "405") {
+	if strings.Contains(msg, "unexpected status code 4") {
 		return false
 	}
 	retryable := []string{"unexpected EOF", "connection reset", "connection refused",
-		"timeout", "TLS handshake", "no such host", "dial tcp", "broken pipe", "i/o timeout"}
+		"TLS handshake", "broken pipe"}
 	for _, s := range retryable {
 		if strings.Contains(msg, s) {
 			return true
 		}
+	}
+	if strings.Contains(msg, "unexpected status code 5") {
+		return true
 	}
 	return false
 }
@@ -172,25 +180,31 @@ func (p *Puller) Pull(
 						if !isRetryable(lastErr) {
 							break
 						}
-						backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+						shift := attempt - 1
+						const maxShift = 30
+						if shift > maxShift {
+							shift = maxShift
+						}
+						backoff := time.Duration(1<<uint(shift)) * time.Second
+						const maxBackoff = 30 * time.Second
+						if backoff > maxBackoff {
+							backoff = maxBackoff
+						}
 						timer := time.NewTimer(backoff)
 						select {
 						case <-ctx.Done():
 							timer.Stop()
-							sendEvent(context.Background(), ch, PullEvent{
+							select {
+							case ch <- PullEvent{
 								Index: t.Index, Digest: t.DigestHex,
 								Err: ctx.Err(), Status: "error",
-							})
+							}:
+							default:
+							}
 							return
 						case <-timer.C:
 						}
-						if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-							sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Err: fmt.Errorf("remove cache: %w", err),
-							})
-							return
-						}
+						os.Remove(cacheFile)
 						if !sendEvent(ctx, ch, PullEvent{
 							Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
 						}) {
@@ -232,15 +246,9 @@ func (p *Puller) Pull(
 						n, readErr := rc.Read(buf)
 						if n > 0 {
 							if _, werr := f.Write(buf[:n]); werr != nil {
-								rc.Close()
-								f.Close()
-								cancel()
-								os.Remove(cacheFile)
-								sendEvent(ctx, ch, PullEvent{
-									Index: t.Index, Digest: t.DigestHex,
-									Err: fmt.Errorf("write cache: %w", werr), Status: "error",
-								})
-								return
+								lastErr = werr
+								readFailed = true
+								break
 							}
 							written += int64(n)
 							if time.Since(lastReport) > 200*time.Millisecond {
@@ -266,6 +274,11 @@ func (p *Puller) Pull(
 					cancel()
 
 					if readFailed {
+						os.Remove(cacheFile)
+						continue
+					}
+					if written != t.Size {
+						lastErr = fmt.Errorf("incomplete download: got %d, expected %d", written, t.Size)
 						os.Remove(cacheFile)
 						continue
 					}
