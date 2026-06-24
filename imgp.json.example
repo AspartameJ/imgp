@@ -1,7 +1,9 @@
 {
   "mirror_map": {
     "docker.io": ["docker.m.daocloud.io"],
-    "gcr.io": ["gcr.mirrors.daocloud.io"]
+    "gcr.io": ["gcr.mirrors.daocloud.io"],
+    "registry.k8s.io": ["m.daocloud.io/registry.k8s.io"],
+    "quay.io": ["quay.nju.edu.cn"]
   },
   "auths": {
     "registry.example.com": {
