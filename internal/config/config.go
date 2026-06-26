@@ -34,6 +34,7 @@ func DefaultConfig() *Config {
 			"registry.k8s.io": {"m.daocloud.io/registry.k8s.io"},
 		},
 		Parallelism: 4,
+		Retry:       2,
 	}
 }
 
