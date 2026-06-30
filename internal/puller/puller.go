@@ -80,10 +80,7 @@ func isRetryable(err error) bool {
 			return true
 		}
 	}
-	if strings.Contains(msg, "unexpected status code 5") {
-		return true
-	}
-	return false
+	return strings.Contains(msg, "unexpected status code 5")
 }
 
 func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
@@ -254,13 +251,17 @@ func (p *Puller) Pull(
 								break
 							}
 							written += int64(n)
-							if time.Since(lastReport) > 200*time.Millisecond {
-								sendEvent(ctx, ch, PullEvent{
-									Index: t.Index, Digest: t.DigestHex,
-									Bytes: written, Total: t.Size, Status: "downloading",
-								})
-								lastReport = time.Now()
+						if time.Since(lastReport) > 200*time.Millisecond {
+							if !sendEvent(ctx, ch, PullEvent{
+								Index: t.Index, Digest: t.DigestHex,
+								Bytes: written, Total: t.Size, Status: "downloading",
+							}) {
+								lastErr = ctx.Err()
+								readFailed = true
+								break
 							}
+							lastReport = time.Now()
+						}
 						}
 						if readErr == io.EOF {
 							break
@@ -286,11 +287,13 @@ func (p *Puller) Pull(
 						continue
 					}
 
-					sendEvent(ctx, ch, PullEvent{
-						Index: t.Index, Digest: t.DigestHex,
-						Bytes: t.Size, Total: t.Size, Status: "done",
-					})
+				if !sendEvent(ctx, ch, PullEvent{
+					Index: t.Index, Digest: t.DigestHex,
+					Bytes: t.Size, Total: t.Size, Status: "done",
+				}) {
 					return
+				}
+				return
 				}
 
 				sendEvent(ctx, ch, PullEvent{

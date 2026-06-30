@@ -189,9 +189,12 @@ func Export(
 	progressCh := make(chan v1.Update, 100)
 	progressDone := make(chan struct{})
 	go func() {
-		defer func() { recover(); close(progressDone) }()
+		defer close(progressDone)
 		for update := range progressCh {
-			progressFn(update.Complete, update.Total)
+			func() {
+				defer func() { recover() }()
+				progressFn(update.Complete, update.Total)
+			}()
 		}
 	}()
 

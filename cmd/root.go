@@ -78,19 +78,27 @@ var cacheInfoCmd = &cobra.Command{
 		cd := cmdCacheDir()
 		var totalSize int64
 		var fileCount int
-		if entries, err := os.ReadDir(cd); err == nil {
-			for _, e := range entries {
-				if !strings.HasSuffix(e.Name(), ".gz") {
-					continue
-				}
-				if e.IsDir() {
-					continue
-				}
-				fi, err := e.Info()
-				if err == nil {
-					totalSize += fi.Size()
-					fileCount++
-				}
+		entries, err := os.ReadDir(cd)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fmt.Printf("Cache directory: %s (not yet created)\n", cd)
+				fmt.Printf("Cached layers:   0\n")
+				fmt.Printf("Total size:      0 B\n")
+				return nil
+			}
+			return fmt.Errorf("read cache directory: %w", err)
+		}
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".gz") {
+				continue
+			}
+			if e.IsDir() {
+				continue
+			}
+			fi, err := e.Info()
+			if err == nil {
+				totalSize += fi.Size()
+				fileCount++
 			}
 		}
 		fmt.Printf("Cache directory: %s\n", cd)
@@ -116,13 +124,13 @@ var cacheClearCmd = &cobra.Command{
 				if e.IsDir() {
 					continue
 				}
+				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil {
+					return fmt.Errorf("clear cache: %w", err)
+				}
 				fi, err := e.Info()
 				if err == nil {
 					freed += fi.Size()
 					removed++
-				}
-				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil {
-					return fmt.Errorf("clear cache: %w", err)
 				}
 			}
 		}
@@ -687,6 +695,7 @@ func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []pul
 			fmt.Print(buf.String())
 
 			if allDone {
+				<-readerDone
 				return quit
 			}
 
