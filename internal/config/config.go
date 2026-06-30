@@ -22,6 +22,7 @@ type Config struct {
 	LayerTimeout       int                   `json:"layer_timeout,omitempty"`
 	Timeout            int                   `json:"timeout,omitempty"`
 	Retry              int                   `json:"retry,omitempty"`
+	CacheDir           string                `json:"cache_dir,omitempty"`
 
 	configPath string
 }
@@ -102,7 +103,7 @@ func (c *Config) Save() error {
 	return os.WriteFile(c.configPath, data, 0600)
 }
 
-func CacheDir() string {
+func osDefaultCacheDir() string {
 	switch runtime.GOOS {
 	case "windows":
 		localAppData := os.Getenv("LOCALAPPDATA")
@@ -125,4 +126,11 @@ func CacheDir() string {
 	}
 	// Fallback
 	return filepath.Join(os.TempDir(), "imgp-cache")
+}
+
+func (c *Config) EffectiveCacheDir() string {
+	if c.CacheDir != "" {
+		return c.CacheDir
+	}
+	return osDefaultCacheDir()
 }

@@ -75,7 +75,11 @@ var cacheInfoCmd = &cobra.Command{
 	Short: "Show cache usage",
 	Long:  "Display the cache directory path, number of cached layers, and total disk usage.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cd := cmdCacheDir()
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		cd := cmdCacheDir(cfg)
 		var totalSize int64
 		var fileCount int
 		entries, err := os.ReadDir(cd)
@@ -113,7 +117,11 @@ var cacheClearCmd = &cobra.Command{
 	Short: "Clear all cached layers",
 	Long:  "Remove all cached layer files to free up disk space.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cd := cmdCacheDir()
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		cd := cmdCacheDir(cfg)
 		var removed int
 		var freed int64
 		if entries, err := os.ReadDir(cd); err == nil {
@@ -156,7 +164,8 @@ Supported keys:
   parallelism         Number of parallel downloads (default: 4)
   layer-timeout       Per-layer download timeout in minutes (default: 30, 0 = no limit)
   timeout             Overall operation timeout in minutes (default: 0 = no limit)
-  retry               Number of retries on network errors (default: 2)`,
+  retry               Number of retries on network errors (default: 2)
+  cache-dir           Custom cache directory path (default: OS-specific path)`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -211,8 +220,10 @@ Supported keys:
 				return fmt.Errorf("retry must be 0 or a positive integer")
 			}
 			cfg.Retry = n
+		case "cache-dir":
+			cfg.CacheDir = value
 		default:
-			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout, retry)", key)
+			return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout, retry, cache-dir)", key)
 		}
 		return cfg.Save()
 	},
@@ -233,6 +244,7 @@ var configListCmd = &cobra.Command{
 		data += fmt.Sprintf("Layer Timeout: %d min\n", cfg.LayerTimeout)
 		data += fmt.Sprintf("Timeout: %d min\n", cfg.Timeout)
 		data += fmt.Sprintf("Retry: %d\n", cfg.Retry)
+		data += fmt.Sprintf("Cache Dir: %s\n", cfg.CacheDir)
 		_, err = fmt.Print(data)
 		return err
 	},
@@ -278,11 +290,11 @@ func init() {
 	cacheCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific path)")
 }
 
-func cmdCacheDir() string {
+func cmdCacheDir(cfg *config.Config) string {
 	if cacheDir != "" {
 		return cacheDir
 	}
-	return config.CacheDir()
+	return cfg.EffectiveCacheDir()
 }
 
 func runSave(cmd *cobra.Command, args []string) error {
@@ -388,7 +400,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	}
 
 	// Create cache directory
-	cd := cmdCacheDir()
+	cd := cmdCacheDir(cfg)
 	if err := os.MkdirAll(cd, 0755); err != nil {
 		return fmt.Errorf("create cache: %w", err)
 	}
