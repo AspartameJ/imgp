@@ -225,11 +225,13 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 	origAuth := c.authenticator(ref.Context().Registry)
 
 	var lastErr error
+	var anyRetryable bool
 	for attempt := 0; attempt <= c.retry; attempt++ {
 		if attempt > 0 {
-			if !isRetryableFetch(lastErr) {
+			if !anyRetryable {
 				break
 			}
+			anyRetryable = false
 			shift := attempt - 1
 			const maxShift = 30
 			if shift > maxShift {
@@ -243,7 +245,9 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 			timer := time.NewTimer(backoff)
 			select {
 			case <-ctx.Done():
-				timer.Stop()
+				if !timer.Stop() {
+					<-timer.C
+				}
 				return nil, nil, ctx.Err()
 			case <-timer.C:
 			}
@@ -269,12 +273,15 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
 				lastErr = err
+				if isRetryableFetch(err) {
+					anyRetryable = true
+				}
 				continue
 			}
 			return img, r, nil
 		}
 
-		if attempt == c.retry || !isRetryableFetch(lastErr) {
+		if attempt == c.retry || !anyRetryable {
 			return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
 		}
 	}

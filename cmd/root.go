@@ -132,13 +132,13 @@ var cacheClearCmd = &cobra.Command{
 				if e.IsDir() {
 					continue
 				}
-				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil {
-					return fmt.Errorf("clear cache: %w", err)
-				}
 				fi, err := e.Info()
 				if err == nil {
 					freed += fi.Size()
 					removed++
+				}
+				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("clear cache: %w", err)
 				}
 			}
 		}
@@ -484,6 +484,9 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	progress := newProgressDisplay(quiet)
 	pullDone := progress.startPull(eventCh, tasks)
 	<-pullDone
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	progress.mu.Lock()
 	hasError := progress.hasError
 	layers := make([]layerState, len(progress.layers))

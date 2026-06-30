@@ -118,6 +118,18 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 	}, nil
 }
 
+type cancelWriter struct {
+	f   *os.File
+	ctx context.Context
+}
+
+func (cw *cancelWriter) Write(p []byte) (int, error) {
+	if err := cw.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cw.f.Write(p)
+}
+
 func Export(
 	ctx context.Context,
 	ref name.Reference,
@@ -198,15 +210,22 @@ func Export(
 		}
 	}()
 
-	writeErr := tarball.Write(ref, v1Img, f, tarball.WithProgress(progressCh))
+	cw := &cancelWriter{f: f, ctx: ctx}
+	writeErr := tarball.Write(ref, v1Img, cw, tarball.WithProgress(progressCh))
+
 	close(progressCh)
 	<-progressDone
-	closeErr := f.Close()
 
 	if writeErr != nil {
+		f.Close()
 		os.Remove(tmpPath)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("write tar: %w", writeErr)
 	}
+
+	closeErr := f.Close()
 	if closeErr != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("close tar: %w", closeErr)

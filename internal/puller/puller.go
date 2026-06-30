@@ -197,7 +197,9 @@ func (p *Puller) Pull(
 						timer := time.NewTimer(backoff)
 						select {
 						case <-ctx.Done():
-							timer.Stop()
+							if !timer.Stop() {
+								<-timer.C
+							}
 							select {
 							case ch <- PullEvent{
 								Index: t.Index, Digest: t.DigestHex,

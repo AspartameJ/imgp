@@ -105,104 +105,185 @@ imgp save private.registry.com/myapp:latest --username user --password your_pass
 
 ## 全部命令
 
-### `imgp save [镜像名]` — 拉取并导出镜像
+### `imgp` — 全局选项
+
+| 参数 | 说明 |
+|---|---|
+| `-v, --version` | 输出版本号 |
+| `-h, --help` | 显示帮助信息 |
+
+### `imgp save [镜像名...]` — 拉取并导出镜像
+
+拉取一个或多个 Docker 镜像，导出为标准 `.tar` 文件（可用 `docker load` 导入）。
 
 ```bash
-imgp save [镜像名] [参数]
+# 单个镜像
+imgp save hello-world:latest -o hello-world.tar
+
+# 多个镜像（自动生成文件名，不能使用 -o）
+imgp save nginx:latest redis:latest alpine:latest
 ```
 
 完整参数：
 
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `-o, --output` | `镜像名_平台.tar` | 导出的 tar 文件路径 |
-| `-p, --platform` | `linux/amd64` | 目标平台，常用值：`linux/amd64`、`linux/arm64`、`windows/amd64` |
-| `--username` | 空 | Registry 登录用户名 |
-| `--password` | 空 | Registry 登录密码（建议用 `--password-env`） |
-| `--password-env` | `IMG_REGISTRY_PASSWORD` | 存放密码的环境变量名 |
-| `--insecure` | false | 允许非 TLS 连接（用于 HTTP 的私有仓库） |
-| `-P, --parallel` | 配置文件中设置，默认 4 | 同时下载的 layer 数量，网络好可以调大 |
-| `--no-cache` | false | 忽略本地缓存，强制重新下载所有 layer |
-| `--cache-dir` | 见缓存管理 | 指定缓存目录 |
-| `--timeout` | 0（无限制） | 整体超时（分钟），超时后自动终止 |
-| `--layer-timeout` | 30 | 每层下载超时（分钟），适合大镜像调大 |
-| `--retry` | 2 | 网络错误时的重试次数（0 = 不重试） |
-| `-q, --quiet` | false | 静默模式，只输出 tar 文件路径 |
-| `-h, --help` | - | 显示帮助 |
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `-o, --output` | string | `镜像名_平台.tar` | 输出 tar 文件路径。多镜像时不可用（自动命名） |
+| `-p, --platform` | string | `linux/amd64` | 目标平台。格式 `os/arch` 或 `os/arch/variant`，如 `linux/arm64`、`linux/arm64/v8`、`windows/amd64` |
+| `--username` | string | 空 | Registry 登录用户名 |
+| `--password` | string | 空 | Registry 登录密码。优先级高于 `--password-env`。注意：密码会在进程列表中可见，建议用 `--password-env` |
+| `--password-env` | string | `IMG_REGISTRY_PASSWORD` | 存放密码的环境变量名。当 `--password` 未设置时从此变量读取 |
+| `--insecure` | bool | `false` | 允许 HTTP 连接（跳过 TLS 验证），用于内网私有仓库 |
+| `-P, --parallel` | int | 配置文件中的值，默认 `4` | 同时下载的 layer 数量。网络好可调大（如 8），反之调小（如 2） |
+| `--no-cache` | bool | `false` | 忽略本地缓存，强制重新下载所有 layer |
+| `--cache-dir` | string | OS 默认路径 | 临时指定缓存目录。优先级：CLI > 配置文件 > OS 默认（见下文缓存管理） |
+| `--timeout` | int | `0`（无限制） | 整体操作超时（分钟）。从拉取到导出完毕的总时间上限 |
+| `--layer-timeout` | int | `30` | 每层下载超时（分钟）。大镜像或慢网络可调大，`0` = 无限制 |
+| `--retry` | int | `2` | 网络错误重试次数。上限 `30`，`0` = 不重试。4xx 错误（401/403/404）不会重试 |
+| `-q, --quiet` | bool | `false` | 静默模式，只输出 tar 文件路径。适合脚本调用 |
+| `-h, --help` | — | — | 显示 save 命令帮助 |
 
 ### `imgp cache` — 缓存管理
 
-```bash
-# 查看缓存占用了多少空间
-imgp cache info
+管理已下载的 layer 缓存，避免重复下载。
 
-# 清空所有缓存
+#### `imgp cache info`
+
+显示缓存使用情况：
+
+```bash
+imgp cache info
+```
+
+输出示例：
+```
+Cache directory: C:\Users\你\AppData\Local\imgp\cache
+Cached layers:   12
+Total size:      156.3 MB
+```
+
+#### `imgp cache clear`
+
+清空所有缓存文件：
+
+```bash
 imgp cache clear
 ```
 
-默认缓存位置：
+输出示例：
+```
+Cleared 12 cached layers (156.3 MB)
+```
+
+#### `--cache-dir` 标志
+
+`info` 和 `clear` 都支持 `--cache-dir` 临时指定目录：
+
+```bash
+imgp cache info --cache-dir D:\my-cache
+imgp cache clear --cache-dir D:\my-cache
+```
+
+#### 默认缓存路径
 
 | 操作系统 | 缓存路径 |
 |---|---|
-| Windows | `%LOCALAPPDATA%\imgp\cache`（通常是 `C:\Users\你的用户名\AppData\Local\imgp\cache`） |
-| Linux | `~/.cache/imgp` 或 `$XDG_CACHE_HOME/imgp` |
+| Windows | `%LOCALAPPDATA%\imgp\cache`（通常 `C:\Users\你\AppData\Local\imgp\cache`） |
+| Linux | `$XDG_CACHE_HOME/imgp` 或 `~/.cache/imgp` |
 | macOS | `~/Library/Caches/imgp` |
 
-你也可以用 `--cache-dir` 参数临时指定其他目录：
-
-```bash
-imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
-```
-
-持久化配置缓存目录（之后每次 save 自动生效）：
-
-```bash
-imgp config set cache-dir "D:\my-temp-cache"
-```
+> 优先级：`--cache-dir` CLI 标志 > 配置文件 `cache_dir` > OS 默认路径
 
 ### `imgp config` — 配置管理
 
+查看和修改持久化配置（保存于 `imgp.json`）。
+
+#### `imgp config list`
+
+显示当前所有配置：
+
 ```bash
-# 查看当前配置
 imgp config list
-
-# 修改镜像加速映射
-imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
-
-# 修改并行下载数
-imgp config set parallelism 8
-
-# 添加不安全 registry（允许 HTTP 连接）
-imgp config set insecure-registries "192.168.1.100:5000"
-
-# 设置每层下载超时和整体超时（分钟）
-imgp config set layer-timeout 60
-imgp config set timeout 120
-
-# 设置网络错误重试次数
-imgp config set retry 3
-
-# 设置持久化的缓存目录（之后 save 自动使用此目录）
-imgp config set cache-dir "D:\image-cache"
-
-# 重置为默认（自动检测 OS 默认路径）
-imgp config set cache-dir ""
 ```
 
-配置文件 `imgp.json` 保存在 **imgp 二进制所在的目录**。默认内容：
+输出示例：
+```
+Mirror Map: map[docker.io:[docker.m.daocloud.io] ...
+Insecure Registries: [192.168.1.100:5000]
+Parallelism: 4
+Layer Timeout: 30 min
+Timeout: 0 min
+Retry: 2
+Cache Dir: D:\image-cache
+```
+
+#### `imgp config set <key> <value>`
+
+支持的配置键：
+
+| Key | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `mirror-map` | string | 内置加速列表 | Registry 镜像映射。格式：`reg1=mirror1\|mirror2,reg2=mirror`（多组用 `,` 分隔，多个镜像用 `\|` 分隔） |
+| `insecure-registries` | string | 空 | 允许 HTTP 连接的 registry（多个用 `,` 分隔） |
+| `parallelism` | int | `4` | 并行下载数（最小 1） |
+| `layer-timeout` | int | `30` | 每层下载超时分钟数（`0` = 无限制） |
+| `timeout` | int | `0` | 整体超时分钟数（`0` = 无限制） |
+| `retry` | int | `2` | 重试次数（上限 30，`0` = 不重试） |
+| `cache-dir` | string | 空 | 缓存目录路径。设为 `""` 回退 OS 默认 |
+
+示例：
+
+```bash
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
+imgp config set parallelism 8
+imgp config set insecure-registries "192.168.1.100:5000"
+imgp config set layer-timeout 60
+imgp config set timeout 120
+imgp config set retry 3
+imgp config set cache-dir "D:\image-cache"
+imgp config set cache-dir ""      # 重置为 OS 默认
+```
+
+### 配置文件 `imgp.json`
+
+保存在 **imgp 二进制所在目录**。完整结构示例：
 
 ```json
 {
   "mirror_map": {
     "docker.io": ["docker.m.daocloud.io"],
-    "gcr.io": ["gcr.mirrors.daocloud.io"]
+    "gcr.io": ["gcr.mirrors.daocloud.io"],
+    "registry.k8s.io": ["m.daocloud.io/registry.k8s.io"]
   },
+  "auths": {
+    "registry.example.com": {
+      "username": "your-username",
+      "password_env": "IMG_REGISTRY_PASSWORD"
+    }
+  },
+  "insecure_registries": ["192.168.1.100:5000"],
   "parallelism": 4,
+  "layer_timeout": 30,
+  "timeout": 0,
+  "retry": 2,
   "cache_dir": ""
 }
 ```
 
-> `cache_dir` 为空时，自动使用操作系统默认缓存路径（见 [imgp cache](#imgp-cache--缓存管理) 节）。
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `mirror_map` | object | Registry → 镜像地址列表的映射 |
+| `auths` | object | Registry 认证配置。key 为 registry 域名，value 含 `username`、`password`、`password_env` |
+| `insecure_registries` | array | 允许 HTTP 连接的 registry |
+| `parallelism` | int | 并行下载数 |
+| `layer_timeout` | int | 每层下载超时（分钟），`0` = 无限制 |
+| `timeout` | int | 整体超时（分钟），`0` = 无限制 |
+| `retry` | int | 重试次数 |
+| `cache_dir` | string | 缓存目录，空 = 使用 OS 默认路径 |
+
+> `auths` 中的明文 `password` 字段不会持久化保存。推荐使用 `password_env` 引用环境变量，运行时读取。
 
 ## 镜像加速（mirror_map）说明
 
