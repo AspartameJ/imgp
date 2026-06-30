@@ -189,10 +189,7 @@ func isRetryableFetch(err error) bool {
 			return true
 		}
 	}
-	if strings.Contains(msg, "unexpected status code 5") {
-		return true
-	}
-	return false
+	return strings.Contains(msg, "unexpected status code 5")
 }
 
 func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Image, name.Reference, error) {

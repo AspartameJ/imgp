@@ -140,10 +140,12 @@ func (p *Puller) Pull(
 							var magic [2]byte
 							if _, err := f.Read(magic[:]); err != nil {
 								f.Close()
-								sendEvent(ctx, ch, PullEvent{
+								if !sendEvent(ctx, ch, PullEvent{
 									Index: t.Index, Digest: t.DigestHex,
 									Err: fmt.Errorf("read cache: %w", err),
-								})
+								}) {
+									return
+								}
 								return
 							}
 							f.Close()
@@ -300,13 +302,13 @@ func (p *Puller) Pull(
 					return
 				}
 
-			if !sendEvent(ctx, ch, PullEvent{
-				Index: t.Index, Digest: t.DigestHex,
-				Err:    fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
-				Status: "error",
-			}) {
-				return
-			}
+				if !sendEvent(ctx, ch, PullEvent{
+					Index: t.Index, Digest: t.DigestHex,
+					Err:    fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
+					Status: "error",
+				}) {
+					return
+				}
 			}(task)
 		}
 
