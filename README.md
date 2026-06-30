@@ -154,6 +154,12 @@ imgp cache clear
 imgp save hello-world:latest -o hello-world.tar --cache-dir D:\my-temp-cache
 ```
 
+持久化配置缓存目录（之后每次 save 自动生效）：
+
+```bash
+imgp config set cache-dir "D:\my-temp-cache"
+```
+
 ### `imgp config` — 配置管理
 
 ```bash
@@ -175,6 +181,12 @@ imgp config set timeout 120
 
 # 设置网络错误重试次数
 imgp config set retry 3
+
+# 设置持久化的缓存目录（之后 save 自动使用此目录）
+imgp config set cache-dir "D:\image-cache"
+
+# 重置为默认（自动检测 OS 默认路径）
+imgp config set cache-dir ""
 ```
 
 配置文件 `imgp.json` 保存在 **imgp 二进制所在的目录**。默认内容：
@@ -185,9 +197,12 @@ imgp config set retry 3
     "docker.io": ["docker.m.daocloud.io"],
     "gcr.io": ["gcr.mirrors.daocloud.io"]
   },
-  "parallelism": 4
+  "parallelism": 4,
+  "cache_dir": ""
 }
 ```
+
+> `cache_dir` 为空时，自动使用操作系统默认缓存路径（见 [imgp cache](#imgp-cache--缓存管理) 节）。
 
 ## 镜像加速（mirror_map）说明
 
