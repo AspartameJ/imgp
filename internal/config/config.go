@@ -65,6 +65,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	if cfg.MirrorMap == nil {
+		cfg.MirrorMap = DefaultConfig().MirrorMap
+	}
 	if cfg.Parallelism < 1 {
 		cfg.Parallelism = 4
 	}

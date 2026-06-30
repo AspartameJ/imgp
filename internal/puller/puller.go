@@ -161,10 +161,12 @@ func (p *Puller) Pull(
 				}
 
 				if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-					sendEvent(ctx, ch, PullEvent{
+					if !sendEvent(ctx, ch, PullEvent{
 						Index: t.Index, Digest: t.DigestHex,
 						Err: fmt.Errorf("remove cache: %w", err),
-					})
+					}) {
+						return
+					}
 					return
 				}
 
@@ -230,10 +232,12 @@ func (p *Puller) Pull(
 					if createErr != nil {
 						rc.Close()
 						cancel()
-						sendEvent(ctx, ch, PullEvent{
+						if !sendEvent(ctx, ch, PullEvent{
 							Index: t.Index, Digest: t.DigestHex,
 							Err: fmt.Errorf("create cache: %w", createErr), Status: "error",
-						})
+						}) {
+							return
+						}
 						return
 					}
 
@@ -251,17 +255,17 @@ func (p *Puller) Pull(
 								break
 							}
 							written += int64(n)
-						if time.Since(lastReport) > 200*time.Millisecond {
-							if !sendEvent(ctx, ch, PullEvent{
-								Index: t.Index, Digest: t.DigestHex,
-								Bytes: written, Total: t.Size, Status: "downloading",
-							}) {
-								lastErr = ctx.Err()
-								readFailed = true
-								break
+							if time.Since(lastReport) > 200*time.Millisecond {
+								if !sendEvent(ctx, ch, PullEvent{
+									Index: t.Index, Digest: t.DigestHex,
+									Bytes: written, Total: t.Size, Status: "downloading",
+								}) {
+									lastErr = ctx.Err()
+									readFailed = true
+									break
+								}
+								lastReport = time.Now()
 							}
-							lastReport = time.Now()
-						}
 						}
 						if readErr == io.EOF {
 							break
@@ -287,20 +291,22 @@ func (p *Puller) Pull(
 						continue
 					}
 
-				if !sendEvent(ctx, ch, PullEvent{
-					Index: t.Index, Digest: t.DigestHex,
-					Bytes: t.Size, Total: t.Size, Status: "done",
-				}) {
+					if !sendEvent(ctx, ch, PullEvent{
+						Index: t.Index, Digest: t.DigestHex,
+						Bytes: t.Size, Total: t.Size, Status: "done",
+					}) {
+						return
+					}
 					return
 				}
-				return
-				}
 
-				sendEvent(ctx, ch, PullEvent{
-					Index: t.Index, Digest: t.DigestHex,
-					Err:    fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
-					Status: "error",
-				})
+			if !sendEvent(ctx, ch, PullEvent{
+				Index: t.Index, Digest: t.DigestHex,
+				Err:    fmt.Errorf("download failed after %d attempts: %w", p.maxRetries+1, lastErr),
+				Status: "error",
+			}) {
+				return
+			}
 			}(task)
 		}
 
