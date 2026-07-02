@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.0.1 (2026-07-02)
+
+### Fixed
+- **Registry retry 逻辑** — 多 mirror 重试时 `lastErr` 被最后一个 mirror 覆盖，改用 `anyRetryable` 追踪任一 mirror 的可重试性，确保重试机会不被丢失
+- **退避判断** — 退避阶段同样从 `lastErr` 改为 `anyRetryable`，避免最后一个 mirror 的非重试错误中断重试
+- **Context 取消不响应** — 新增 `cancelWriter` 包装器，每次 `Write` 前检查 `ctx.Err()`，使 `tarball.Write` 可被 Ctrl+C/超时中断
+- **`f.Close()` 与 `f.Write()` data race** — `cancelWriter` 消除了跨 goroutine 并发关闭/写入文件的问题
+- **拉取取消后继续导出** — `<-pullDone` 后加 `ctx.Err()` 检查，取消后用不完整 layer 导出损坏 tar 的问题
+- **`cache clear` 文件删除竞争** — `os.Remove` 后 `e.Info()` 导致统计少报 → 先 `e.Info()` 再 `os.Remove`
+- **`cache clear` 外部删除** — 文件在 `ReadDir` 和 `Remove` 之间被外部删除时整个命令报错退出 → 加 `os.IsNotExist` 守卫
+- **Go 1.22 timer goroutine 泄露** — 已触发的 `time.Timer` 调用 `Stop()` 后未 drain channel，两处修复（puller + registry）
+
+### Added
+- **缓存目录持久化** — `imgp config set cache-dir` 和 `imgp config list` 支持 `cache-dir` 配置项的读写，save/cache 命令均生效
+- **README 完整参数参考** — 所有命令、标志、配置项、`imgp.json` 字段的完整文档表格
+
+### Changed
+- **tar 导出取消机制** — 从 goroutine + `f.Close()` 改为 `cancelWriter` 包装器，消除 data race，支持 context 优雅取消
+
 ## v2.0.0 (2026-06-23)
 
 ### Removed
