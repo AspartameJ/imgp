@@ -20,6 +20,7 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/config"
 )
 
+// Client handles registry communication with mirror fallback and auth.
 type Client struct {
 	cfg      *config.Config
 	username string
@@ -28,21 +29,25 @@ type Client struct {
 	retry    int
 }
 
+// NewClient creates a registry Client from the given config.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{cfg: cfg, retry: 2}
 }
 
+// WithAuth sets registry credentials.
 func (c *Client) WithAuth(username, password string) *Client {
 	c.username = username
 	c.password = password
 	return c
 }
 
+// WithInsecure sets whether to skip TLS verification.
 func (c *Client) WithInsecure(v bool) *Client {
 	c.insecure = v
 	return c
 }
 
+// WithRetry sets the max retry count for fetch operations.
 func (c *Client) WithRetry(n int) *Client {
 	if n >= 0 {
 		c.retry = n
@@ -192,6 +197,7 @@ func isRetryableFetch(err error) bool {
 	return strings.Contains(msg, "unexpected status code 5")
 }
 
+// FetchImage retrieves an image from the registry with mirror fallback and retry.
 func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Image, name.Reference, error) {
 	ref, err := name.ParseReference(image)
 	if err != nil {

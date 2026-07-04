@@ -56,6 +56,7 @@ func (c *compressedImage) LayerByDigest(h v1.Hash) (partial.CompressedLayer, err
 	return l, nil
 }
 
+// BuildLayer validates a cached layer file and returns a CompressedLayer.
 func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, error) {
 	digest, err := v1Layer.Digest()
 	if err != nil {
@@ -130,6 +131,7 @@ func (cw *cancelWriter) Write(p []byte) (int, error) {
 	return cw.f.Write(p)
 }
 
+// Export writes a Docker-compatible tar archive from the given image.
 func Export(
 	ctx context.Context,
 	ref name.Reference,

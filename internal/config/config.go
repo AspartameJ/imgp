@@ -8,12 +8,14 @@ import (
 	"runtime"
 )
 
+// AuthConfig holds registry authentication credentials.
 type AuthConfig struct {
 	Username    string `json:"username,omitempty"`
 	Password    string `json:"password,omitempty"`
 	PasswordEnv string `json:"password_env,omitempty"`
 }
 
+// Config holds all imgp configuration loaded from imgp.json.
 type Config struct {
 	MirrorMap          map[string][]string   `json:"mirror_map"`
 	Auths              map[string]AuthConfig `json:"auths,omitempty"`
@@ -27,6 +29,7 @@ type Config struct {
 	configPath string
 }
 
+// DefaultConfig returns a Config with default mirror map and parallelism.
 func DefaultConfig() *Config {
 	return &Config{
 		MirrorMap: map[string][]string{
@@ -39,6 +42,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// ConfigPath returns the path to imgp.json (next to the binary).
 func ConfigPath() string {
 	exe, err := os.Executable()
 	if err == nil {
@@ -50,6 +54,7 @@ func ConfigPath() string {
 	return filepath.Join(".", "imgp.json")
 }
 
+// Load reads and parses imgp.json, returning defaults if the file does not exist.
 func Load() (*Config, error) {
 	cfg := DefaultConfig()
 	cfg.configPath = ConfigPath()
@@ -85,6 +90,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// Save writes the configuration to imgp.json.
 func (c *Config) Save() error {
 	// Password fields are intentionally not persisted for security.
 	// Use PasswordEnv to reference a secure environment variable instead.
@@ -128,6 +134,7 @@ func osDefaultCacheDir() string {
 	return filepath.Join(os.TempDir(), "imgp-cache")
 }
 
+// EffectiveCacheDir returns the cache dir: config value, or OS default if empty.
 func (c *Config) EffectiveCacheDir() string {
 	if c.CacheDir != "" {
 		return c.CacheDir

@@ -86,87 +86,185 @@ imgp save private.registry.com/myapp:latest --username user --password your_pass
 
 ## Commands
 
-### `imgp save [image]` — Pull and export
+### `imgp` — Global options
+
+| Flag | Description |
+|------|-------------|
+| `-v, --version` | Print version number |
+| `-h, --help` | Show help |
+
+### `imgp save [image...]` — Pull and export
+
+Pull one or more Docker images and save as standard `.tar` files (importable with `docker load`).
 
 ```bash
-imgp save [image] [flags]
+# Single image
+imgp save hello-world:latest -o hello-world.tar
+
+# Multiple images (auto-named, -o not allowed)
+imgp save nginx:latest redis:latest alpine:latest
 ```
 
-| Flag | Default | Description |
-|---|---|---|
-| `-o, --output` | `image_platform.tar` | Output tar file path |
-| `-p, --platform` | `linux/amd64` | Target platform (e.g. `linux/arm64`, `windows/amd64`) |
-| `--username` | (empty) | Registry username |
-| `--password` | (empty) | Registry password (use `--password-env`) |
-| `--password-env` | `IMG_REGISTRY_PASSWORD` | Env var name for password |
-| `--insecure` | false | Allow non-TLS connections |
-| `-P, --parallel` | 4 (from config) | Number of parallel layer downloads |
-| `--no-cache` | false | Ignore cache, force re-download |
-| `--cache-dir` | OS-specific (see Cache) | Custom cache directory |
-| `--timeout` | 0 (no limit) | Overall operation timeout in minutes |
-| `--layer-timeout` | 30 | Per-layer download timeout in minutes |
-| `--retry` | 2 | Number of retries on network errors (0 = no retry) |
-| `-q, --quiet` | false | Output only the tar path |
-| `-h, --help` | - | Show help |
+Full flags:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o, --output` | string | `image_platform.tar` | Output tar path. Not allowed with multiple images (auto-named) |
+| `-p, --platform` | string | `linux/amd64` | Target platform. Format: `os/arch` or `os/arch/variant`, e.g. `linux/arm64`, `linux/arm64/v8`, `windows/amd64` |
+| `--username` | string | (empty) | Registry username |
+| `--password` | string | (empty) | Registry password. Takes priority over `--password-env`. Note: visible in process listings; use `--password-env` instead |
+| `--password-env` | string | `IMG_REGISTRY_PASSWORD` | Env var name holding the password (used when `--password` is not set) |
+| `--insecure` | bool | `false` | Allow HTTP connections (skip TLS verify), for internal registries |
+| `-P, --parallel` | int | from config, default `4` | Number of parallel layer downloads. Increase for fast networks (e.g. 8), decrease for slow (e.g. 2) |
+| `--no-cache` | bool | `false` | Ignore local cache, force re-download all layers |
+| `--cache-dir` | string | OS default | Custom cache directory. Priority: CLI > config > OS default (see Cache below) |
+| `--timeout` | int | `0` (no limit) | Overall operation timeout in minutes, from fetch through export |
+| `--layer-timeout` | int | `30` | Per-layer download timeout in minutes. Increase for large images or slow networks; `0` = no limit |
+| `--retry` | int | `2` | Number of retries on network errors. Max `30`, `0` = no retry. 4xx errors (401/403/404) are NOT retried |
+| `-q, --quiet` | bool | `false` | Quiet mode: output only the tar path. Suitable for scripting |
+| `-h, --help` | — | — | Show help for the save command |
 
 ### `imgp cache` — Cache management
 
-```bash
-# Show cache usage
-imgp cache info
+Manage downloaded layer cache to avoid re-downloading.
 
-# Clear all cache
+#### `imgp cache info`
+
+Show cache usage:
+
+```bash
+imgp cache info
+```
+
+Sample output:
+```
+Cache directory: C:\Users\you\AppData\Local\imgp\cache
+Cached layers:   12
+Total size:      156.3 MB
+```
+
+#### `imgp cache clear`
+
+Remove all cached layers:
+
+```bash
 imgp cache clear
 ```
 
-Default cache locations:
+Sample output:
+```
+Cleared 12 cached layers (156.3 MB)
+```
+
+#### `--cache-dir` flag
+
+Both `info` and `clear` support `--cache-dir`:
+
+```bash
+imgp cache info --cache-dir /tmp/my-cache
+imgp cache clear --cache-dir /tmp/my-cache
+```
+
+#### Default cache locations
 
 | OS | Path |
 |---|---|
-| Windows | `%LOCALAPPDATA%\imgp\cache` |
-| Linux | `~/.cache/imgp` or `$XDG_CACHE_HOME/imgp` |
+| Windows | `%LOCALAPPDATA%\imgp\cache` (typically `C:\Users\you\AppData\Local\imgp\cache`) |
+| Linux | `$XDG_CACHE_HOME/imgp` or `~/.cache/imgp` |
 | macOS | `~/Library/Caches/imgp` |
 
-Custom directory:
-
-```bash
-imgp save hello-world:latest -o hello-world.tar --cache-dir /tmp/my-cache
-```
+> Priority: `--cache-dir` CLI flag > config `cache_dir` > OS default path
 
 ### `imgp config` — Configuration
 
+View and modify persistent configuration stored in `imgp.json`.
+
+#### `imgp config list`
+
+Show all current configuration:
+
 ```bash
-# View current config
 imgp config list
-
-# Set mirror map
-imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
-
-# Set parallelism
-imgp config set parallelism 8
-
-# Add insecure registries (allow HTTP)
-imgp config set insecure-registries "192.168.1.100:5000"
-
-# Set per-layer and overall timeout (minutes)
-imgp config set layer-timeout 60
-imgp config set timeout 120
-
-# Set retry count on network errors
-imgp config set retry 3
 ```
 
-Config file `imgp.json` is stored next to the binary. Defaults:
+Sample output:
+```
+Mirror Map: map[docker.io:[docker.m.daocloud.io] ...
+Insecure Registries: [192.168.1.100:5000]
+Parallelism: 4
+Layer Timeout: 30 min
+Timeout: 0 min
+Retry: 2
+Cache Dir: /tmp/my-cache
+```
+
+#### `imgp config set <key> <value>`
+
+Supported configuration keys:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mirror-map` | string | built-in mirrors | Registry mirror mappings. Format: `reg1=mirror1\|mirror2,reg2=mirror` (commas for groups, pipes for multiple mirrors) |
+| `insecure-registries` | string | (empty) | Registries allowed over HTTP (comma-separated) |
+| `parallelism` | int | `4` | Number of parallel downloads (minimum 1) |
+| `layer-timeout` | int | `30` | Per-layer download timeout in minutes (`0` = no limit) |
+| `timeout` | int | `0` | Overall timeout in minutes (`0` = no limit) |
+| `retry` | int | `2` | Number of retries (max 30, `0` = no retry) |
+| `cache-dir` | string | (empty) | Cache directory path. Set to `""` to fall back to OS default |
+
+Examples:
+
+```bash
+imgp config set mirror-map "docker.io=docker.m.daocloud.io,gcr.io=gcr.mirrors.daocloud.io"
+imgp config set parallelism 8
+imgp config set insecure-registries "192.168.1.100:5000"
+imgp config set layer-timeout 60
+imgp config set timeout 120
+imgp config set retry 3
+imgp config set cache-dir "/tmp/my-cache"
+imgp config set cache-dir ""      # reset to OS default
+```
+
+### Config file `imgp.json`
+
+Stored in the **same directory as the `imgp` binary**. Full structure:
 
 ```json
 {
   "mirror_map": {
     "docker.io": ["docker.m.daocloud.io"],
-    "gcr.io": ["gcr.mirrors.daocloud.io"]
+    "gcr.io": ["gcr.mirrors.daocloud.io"],
+    "registry.k8s.io": ["m.daocloud.io/registry.k8s.io"]
   },
-  "parallelism": 4
+  "auths": {
+    "registry.example.com": {
+      "username": "your-username",
+      "password_env": "IMG_REGISTRY_PASSWORD"
+    }
+  },
+  "insecure_registries": ["192.168.1.100:5000"],
+  "parallelism": 4,
+  "layer_timeout": 30,
+  "timeout": 0,
+  "retry": 2,
+  "cache_dir": ""
 }
 ```
+
+Field reference:
+
+| Field | Type | Description |
+|---|---|---|
+| `mirror_map` | object | Registry → mirror address list mappings |
+| `auths` | object | Registry authentication configs. Key is the registry domain, value contains `username`, `password`, `password_env` |
+| `insecure_registries` | array | Registries allowed over HTTP |
+| `parallelism` | int | Number of parallel downloads |
+| `layer_timeout` | int | Per-layer download timeout in minutes (`0` = no limit) |
+| `timeout` | int | Overall timeout in minutes (`0` = no limit) |
+| `retry` | int | Number of retries |
+| `cache_dir` | string | Cache directory path; empty = use OS default |
+
+> The plain-text `password` field inside `auths` is NOT persisted by `imgp config set`. Use `password_env` to reference an environment variable instead.
 
 ## Mirror Acceleration
 

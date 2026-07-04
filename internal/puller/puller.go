@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// PullEvent represents a progress or error event during layer download.
 type PullEvent struct {
 	Index  int
 	Digest string
@@ -22,6 +23,7 @@ type PullEvent struct {
 	Err    error
 }
 
+// LayerTask describes a single layer to download.
 type LayerTask struct {
 	Index     int
 	DigestHex string
@@ -29,6 +31,7 @@ type LayerTask struct {
 	OpenLayer func(ctx context.Context) (io.ReadCloser, error)
 }
 
+// Puller manages concurrent layer downloads with caching and retry.
 type Puller struct {
 	cacheDir     string
 	noCache      bool
@@ -36,6 +39,7 @@ type Puller struct {
 	maxRetries   int
 }
 
+// NewPuller creates a Puller with the given cache directory.
 func NewPuller(cacheDir string) *Puller {
 	return &Puller{
 		cacheDir:     cacheDir,
@@ -44,16 +48,19 @@ func NewPuller(cacheDir string) *Puller {
 	}
 }
 
+// WithNoCache sets whether to ignore cached layers.
 func (p *Puller) WithNoCache(v bool) *Puller {
 	p.noCache = v
 	return p
 }
 
+// WithLayerTimeout sets the per-layer download timeout.
 func (p *Puller) WithLayerTimeout(d time.Duration) *Puller {
 	p.layerTimeout = d
 	return p
 }
 
+// WithRetry sets the max retry count for network errors.
 func (p *Puller) WithRetry(n int) *Puller {
 	if n >= 0 {
 		p.maxRetries = n
@@ -92,6 +99,7 @@ func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
 	}
 }
 
+// Pull downloads layers concurrently and sends progress events on the returned channel.
 func (p *Puller) Pull(
 	ctx context.Context,
 	tasks []LayerTask,
