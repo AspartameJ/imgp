@@ -136,6 +136,7 @@ imgp save nginx:latest redis:latest alpine:latest
 | `--insecure` | bool | `false` | 允许 HTTP 连接（跳过 TLS 验证），用于内网私有仓库 |
 | `-P, --parallel` | int | 配置文件中的值，默认 `4` | 同时下载的 layer 数量。网络好可调大（如 8），反之调小（如 2） |
 | `--no-cache` | bool | `false` | 忽略本地缓存，强制重新下载所有 layer |
+| `-z, --gzip` | bool | `false` | 启用 gzip 压缩输出 tar 文件 |
 | `--cache-dir` | string | OS 默认路径 | 临时指定缓存目录。优先级：CLI > 配置文件 > OS 默认（见下文缓存管理） |
 | `--timeout` | int | `0`（无限制） | 整体操作超时（分钟）。从拉取到导出完毕的总时间上限 |
 | `--layer-timeout` | int | `30` | 每层下载超时（分钟）。大镜像或慢网络可调大，`0` = 无限制 |

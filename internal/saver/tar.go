@@ -138,6 +138,7 @@ func Export(
 	img v1.Image,
 	outputPath string,
 	cachePathFn func(digest string) string,
+	gzipEnabled bool,
 	progressFn func(completed, total int64),
 ) error {
 	if fi, err := os.Stat(outputPath); err == nil && fi.IsDir() {
@@ -213,18 +214,35 @@ func Export(
 	}()
 
 	cw := &cancelWriter{f: f, ctx: ctx}
-	writeErr := tarball.Write(ref, v1Img, cw, tarball.WithProgress(progressCh))
+	var w io.Writer = cw
+	var gw *gzip.Writer
+	if gzipEnabled {
+		gw = gzip.NewWriter(cw)
+		w = gw
+	}
+	writeErr := tarball.Write(ref, v1Img, w, tarball.WithProgress(progressCh))
 
 	close(progressCh)
 	<-progressDone
 
 	if writeErr != nil {
+		if gw != nil {
+			gw.Close()
+		}
 		f.Close()
 		os.Remove(tmpPath)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return fmt.Errorf("write tar: %w", writeErr)
+	}
+
+	if gw != nil {
+		if err := gw.Close(); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("close gzip: %w", err)
+		}
 	}
 
 	closeErr := f.Close()

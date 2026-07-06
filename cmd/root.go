@@ -30,6 +30,7 @@ var (
 	parallelism     int
 	quiet           bool
 	noCache         bool
+	gzip            bool
 	cacheDir        string
 	timeoutMin      int
 	layerTimeoutMin int
@@ -282,6 +283,7 @@ func init() {
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
+	saveCmd.Flags().BoolVarP(&gzip, "gzip", "z", false, "Gzip-compress the output tar file")
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)")
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes (0 = no limit)")
@@ -394,7 +396,11 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	if outPath == "" {
 		name := strings.ReplaceAll(strings.ReplaceAll(image, "/", "_"), ":", "_")
 		plat := strings.ReplaceAll(targetPlatform, "/", "-")
-		outPath = fmt.Sprintf("%s_%s.tar", name, plat)
+		ext := ".tar"
+		if gzip {
+			ext = ".tar.gz"
+		}
+		outPath = fmt.Sprintf("%s_%s%s", name, plat, ext)
 	} else {
 		outPath = filepath.Clean(outPath)
 	}
@@ -522,7 +528,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	if !quiet {
 		fmt.Printf("\r  exporting: 0%%")
 	}
-	err = saver.Export(ctx, origRef, img, outPath, cachePathFn,
+	err = saver.Export(ctx, origRef, img, outPath, cachePathFn, gzip,
 		func(completed, total int64) {
 			if quiet {
 				return

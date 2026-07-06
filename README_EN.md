@@ -117,6 +117,7 @@ Full flags:
 | `--insecure` | bool | `false` | Allow HTTP connections (skip TLS verify), for internal registries |
 | `-P, --parallel` | int | from config, default `4` | Number of parallel layer downloads. Increase for fast networks (e.g. 8), decrease for slow (e.g. 2) |
 | `--no-cache` | bool | `false` | Ignore local cache, force re-download all layers |
+| `-z, --gzip` | bool | `false` | Gzip-compress the output tar file |
 | `--cache-dir` | string | OS default | Custom cache directory. Priority: CLI > config > OS default (see Cache below) |
 | `--timeout` | int | `0` (no limit) | Overall operation timeout in minutes, from fetch through export |
 | `--layer-timeout` | int | `30` | Per-layer download timeout in minutes. Increase for large images or slow networks; `0` = no limit |
