@@ -18,9 +18,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
+	"gitcode.com/DonaldTom/imgp/internal/version"
 )
 
-const userAgent = "imgp/2.0"
+var userAgent = "imgp/" + version.Version
 
 // Client handles registry communication with mirror fallback and auth.
 type Client struct {

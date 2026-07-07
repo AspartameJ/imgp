@@ -18,6 +18,7 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/puller"
 	"gitcode.com/DonaldTom/imgp/internal/registry"
 	"gitcode.com/DonaldTom/imgp/internal/saver"
+	"gitcode.com/DonaldTom/imgp/internal/version"
 )
 
 var (
@@ -36,9 +37,6 @@ var (
 	layerTimeoutMin int
 	retryCount      int
 )
-
-// Version is set at build time via -ldflags -X cmd.Version=x.y.z
-var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "imgp",
@@ -264,7 +262,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.Version = Version
+	rootCmd.Version = version.Version
 	rootCmd.AddCommand(saveCmd)
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheInfoCmd)

@@ -95,6 +95,9 @@ func Load() (*Config, error) {
 
 // Save writes the configuration to imgp.json.
 func (c *Config) Save() error {
+	if c.configPath == "" {
+		c.configPath = ConfigPath()
+	}
 	// Password fields are intentionally not persisted for security.
 	// Use PasswordEnv to reference a secure environment variable instead.
 	saveCfg := *c
