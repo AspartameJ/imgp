@@ -8,6 +8,8 @@ import (
 	"runtime"
 )
 
+const DefaultParallelism = 4
+
 // AuthConfig holds registry authentication credentials.
 type AuthConfig struct {
 	Username    string `json:"username,omitempty"`
@@ -37,13 +39,14 @@ func DefaultConfig() *Config {
 			"gcr.io":          {"gcr.mirrors.daocloud.io"},
 			"registry.k8s.io": {"m.daocloud.io/registry.k8s.io"},
 		},
-		Parallelism: 4,
+		Parallelism: DefaultParallelism,
 		Retry:       2,
 	}
 }
 
 // ConfigPath returns the path to imgp.json (next to the binary).
-func ConfigPath() string {
+// Exposed as a var for test injection.
+var ConfigPath = func() string {
 	exe, err := os.Executable()
 	if err == nil {
 		return filepath.Join(filepath.Dir(exe), "imgp.json")
@@ -75,7 +78,7 @@ func Load() (*Config, error) {
 		cfg.MirrorMap = DefaultConfig().MirrorMap
 	}
 	if cfg.Parallelism < 1 {
-		cfg.Parallelism = 4
+		cfg.Parallelism = DefaultParallelism
 	}
 	if cfg.LayerTimeout < 0 {
 		cfg.LayerTimeout = 0

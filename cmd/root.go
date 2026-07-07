@@ -37,6 +37,9 @@ var (
 	retryCount      int
 )
 
+// Version is set at build time via -ldflags -X cmd.Version=x.y.z
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "imgp",
 	Short: "Cross-platform Docker image pull and save tool",
@@ -44,7 +47,6 @@ var rootCmd = &cobra.Command{
 
 Supports multiple architectures (default: linux/amd64), parallel downloads,
 built-in mirror acceleration, and layer caching.`,
-	Version: "2.0.0",
 }
 
 var saveCmd = &cobra.Command{
@@ -262,6 +264,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.Version = Version
 	rootCmd.AddCommand(saveCmd)
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheInfoCmd)
@@ -334,75 +337,99 @@ func runSave(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo string) error {
+type saveParams struct {
+	parallelism    int
+	layerTimeout   int
+	overallTimeout int
+	retry          int
+	targetPlatform string
+	password       string
+	outputPath     string
+	gzip           bool
+	quiet          bool
+	noCache        bool
+}
 
-	par := cfg.Parallelism
+func resolveSaveParams(cmd *cobra.Command, cfg *config.Config, image string) (saveParams, error) {
+	var p saveParams
+
+	p.parallelism = cfg.Parallelism
 	if parallelism > 0 {
-		par = parallelism
+		p.parallelism = parallelism
 	}
-	if par < 1 {
-		par = 4
+	if p.parallelism < 1 {
+		p.parallelism = config.DefaultParallelism
 	}
 
-	lt := cfg.LayerTimeout
+	p.layerTimeout = cfg.LayerTimeout
 	if cmd.Flags().Changed("layer-timeout") {
-		lt = layerTimeoutMin
-	} else if lt == 0 {
-		lt = 30
+		p.layerTimeout = layerTimeoutMin
+	} else if p.layerTimeout == 0 {
+		p.layerTimeout = 30
 	}
 
-	to := timeoutMin
-	if !cmd.Flags().Changed("timeout") && to == 0 && cfg.Timeout > 0 {
-		to = cfg.Timeout
+	p.overallTimeout = timeoutMin
+	if !cmd.Flags().Changed("timeout") && p.overallTimeout == 0 && cfg.Timeout > 0 {
+		p.overallTimeout = cfg.Timeout
 	}
 
-	rt := cfg.Retry
+	p.retry = cfg.Retry
 	if cmd.Flags().Changed("retry") {
-		rt = retryCount
+		p.retry = retryCount
 	}
-	if rt > 30 {
-		rt = 30
+	if p.retry > 30 {
+		p.retry = 30
 	}
 
-	targetPlatform := platform
-	if targetPlatform == "" {
-		targetPlatform = "linux/amd64"
+	p.targetPlatform = platform
+	if p.targetPlatform == "" {
+		p.targetPlatform = "linux/amd64"
 	} else {
-		parts := strings.Split(targetPlatform, "/")
+		parts := strings.Split(p.targetPlatform, "/")
 		if len(parts) < 2 || len(parts) > 3 {
-			return fmt.Errorf("invalid platform format %q, expected os/arch or os/arch/variant (e.g. linux/amd64, linux/arm64/v8)", targetPlatform)
+			return p, fmt.Errorf("invalid platform format %q, expected os/arch or os/arch/variant (e.g. linux/amd64, linux/arm64/v8)", p.targetPlatform)
 		}
-		for _, p := range parts {
-			if p == "" {
-				return fmt.Errorf("invalid platform format %q: empty segment", targetPlatform)
+		for _, x := range parts {
+			if x == "" {
+				return p, fmt.Errorf("invalid platform format %q: empty segment", p.targetPlatform)
 			}
 		}
 		if !isValidArch(parts[1]) {
 			if s := archSuggestion(parts[1]); s != "" {
-				return fmt.Errorf("unknown architecture %q in platform %q, did you mean %q?", parts[1], targetPlatform, s)
+				return p, fmt.Errorf("unknown architecture %q in platform %q, did you mean %q?", parts[1], p.targetPlatform, s)
 			}
-			return fmt.Errorf("unknown architecture %q in platform %q, valid values: 386, amd64, arm, arm64, loong64, mips, mips64, mips64le, mipsle, ppc64, ppc64le, riscv64, s390x, wasm", parts[1], targetPlatform)
+			return p, fmt.Errorf("unknown architecture %q in platform %q, valid values: 386, amd64, arm, arm64, loong64, mips, mips64, mips64le, mipsle, ppc64, ppc64le, riscv64, s390x, wasm", parts[1], p.targetPlatform)
 		}
 	}
 
-	// Resolve password
-	pass := password
-	if pass == "" && passwordEnv != "" {
-		pass = os.Getenv(passwordEnv)
+	p.password = password
+	if p.password == "" && passwordEnv != "" {
+		p.password = os.Getenv(passwordEnv)
 	}
 
-	// Default output name
-	outPath := output
-	if outPath == "" {
+	p.outputPath = output
+	if p.outputPath == "" {
 		name := strings.ReplaceAll(strings.ReplaceAll(image, "/", "_"), ":", "_")
-		plat := strings.ReplaceAll(targetPlatform, "/", "-")
+		plat := strings.ReplaceAll(p.targetPlatform, "/", "-")
 		ext := ".tar"
 		if gzip {
 			ext = ".tar.gz"
 		}
-		outPath = fmt.Sprintf("%s_%s%s", name, plat, ext)
+		p.outputPath = fmt.Sprintf("%s_%s%s", name, plat, ext)
 	} else {
-		outPath = filepath.Clean(outPath)
+		p.outputPath = filepath.Clean(p.outputPath)
+	}
+
+	p.gzip = gzip
+	p.quiet = quiet
+	p.noCache = noCache
+	return p, nil
+}
+
+func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo string) error {
+	p, err := resolveSaveParams(cmd, cfg, image)
+	if err != nil {
+		return err
 	}
 
 	// Create cache directory
@@ -412,26 +439,26 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	}
 
 	// Create registry client
-	client := registry.NewClient(cfg).WithAuth(username, pass).WithInsecure(insecure).WithRetry(rt)
+	client := registry.NewClient(cfg).WithAuth(username, p.password).WithInsecure(insecure).WithRetry(p.retry)
 
 	// Apply overall timeout to entire operation (fetch + pull)
 	ctx := cmd.Context()
-	if to > 0 {
+	if p.overallTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(to)*time.Minute)
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(p.overallTimeout)*time.Minute)
 		defer cancel()
 	}
 
-	// Phase 1: Pull
-	if !quiet {
+	// Phase 1: Fetch image manifest
+	if !p.quiet {
 		if isTerminal() {
-			fmt.Printf("%s%s %s (%s)\n", batchInfo, colorCyan("⟳ Pulling"), image, targetPlatform)
+			fmt.Printf("%s%s %s (%s)\n", batchInfo, colorCyan("⟳ Pulling"), image, p.targetPlatform)
 		} else {
-			fmt.Printf("%sPulling %s (%s)\n", batchInfo, image, targetPlatform)
+			fmt.Printf("%sPulling %s (%s)\n", batchInfo, image, p.targetPlatform)
 		}
 	}
 
-	img, ref, err := client.FetchImage(ctx, image, targetPlatform)
+	img, ref, err := client.FetchImage(ctx, image, p.targetPlatform)
 	if err != nil {
 		if strings.Contains(err.Error(), "dial tcp") || strings.Contains(err.Error(), "i/o timeout") {
 			return fmt.Errorf("fetch image: %w\n  		tip: check network/proxy or try with a mirror (e.g. `imgp config set mirror-map registry.k8s.io=m.daocloud.io/registry.k8s.io`)", err)
@@ -444,7 +471,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return fmt.Errorf("parse image reference: %w", err)
 	}
 
-	if !quiet {
+	if !p.quiet {
 		if isTerminal() {
 			fmt.Printf("%s\n", colorGreen("✓ Image manifest fetched, downloading layers..."))
 		} else {
@@ -452,6 +479,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		}
 	}
 
+	// Phase 2: Download layers
 	layerFetcher := client.NewLayerFetcher(ref)
 
 	imgLayers, err := img.Layers()
@@ -480,15 +508,15 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		}
 	}
 
-	pl := puller.NewPuller(cd).WithNoCache(noCache).WithLayerTimeout(time.Duration(lt) * time.Minute).WithRetry(rt)
+	pl := puller.NewPuller(cd).WithNoCache(p.noCache).WithLayerTimeout(time.Duration(p.layerTimeout) * time.Minute).WithRetry(p.retry)
 
-	eventCh, err := pl.Pull(ctx, tasks, par)
+	eventCh, err := pl.Pull(ctx, tasks, p.parallelism)
 	if err != nil {
 		return fmt.Errorf("start pull: %w", err)
 	}
 
-	progress := newProgressDisplay(quiet)
-	pullDone := progress.startPull(eventCh, tasks)
+	progress := newProgressDisplay(p.quiet)
+	pullDone := progress.runPullUI(eventCh, tasks)
 	<-pullDone
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -512,12 +540,12 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return fmt.Errorf("layer download failed:\n  %s", strings.Join(errs, "\n  "))
 	}
 
-	// Phase 2: Export
-	if !quiet {
+	// Phase 3: Export tar
+	if !p.quiet {
 		if isTerminal() {
-			fmt.Printf("\n%s\n", colorCyan("⟳ Exporting to ")+outPath)
+			fmt.Printf("\n%s\n", colorCyan("⟳ Exporting to ")+p.outputPath)
 		} else {
-			fmt.Printf("\nExporting to %s\n", outPath)
+			fmt.Printf("\nExporting to %s\n", p.outputPath)
 		}
 	}
 
@@ -525,12 +553,12 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return filepath.Join(cd, digest+".gz")
 	}
 
-	if !quiet {
+	if !p.quiet {
 		fmt.Printf("\r  exporting: 0%%")
 	}
-	err = saver.Export(ctx, origRef, img, outPath, cachePathFn, gzip,
+	err = saver.Export(ctx, origRef, img, p.outputPath, cachePathFn, p.gzip,
 		func(completed, total int64) {
-			if quiet {
+			if p.quiet {
 				return
 			}
 			percent := float64(completed) / float64(total) * 100
@@ -541,14 +569,14 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	if err != nil {
 		return fmt.Errorf("export: %w", err)
 	}
-	if !quiet {
+	if !p.quiet {
 		if isTerminal() {
-			fmt.Printf("\n%s %s (%s) saved to %s\n", colorGreen("✓ Done:"), image, targetPlatform, outPath)
+			fmt.Printf("\n%s %s (%s) saved to %s\n", colorGreen("✓ Done:"), image, p.targetPlatform, p.outputPath)
 		} else {
-			fmt.Printf("\nDone: %s (%s) saved to %s\n", image, targetPlatform, outPath)
+			fmt.Printf("\nDone: %s (%s) saved to %s\n", image, p.targetPlatform, p.outputPath)
 		}
 	} else {
-		fmt.Println(outPath)
+		fmt.Println(p.outputPath)
 	}
 
 	return nil
@@ -586,7 +614,7 @@ func newProgressDisplay(quiet bool) *progressDisplay {
 	return &progressDisplay{quiet: quiet, useANSI: isTerminal()}
 }
 
-func (p *progressDisplay) startPull(eventCh <-chan puller.PullEvent, tasks []puller.LayerTask) <-chan struct{} {
+func (p *progressDisplay) runPullUI(eventCh <-chan puller.PullEvent, tasks []puller.LayerTask) <-chan struct{} {
 	quit := make(chan struct{})
 
 	if p.quiet {
@@ -789,6 +817,12 @@ func archSuggestion(arch string) string {
 func renderBar(current, total int64, width int) string {
 	if total == 0 {
 		return strings.Repeat("░", width)
+	}
+	if current > total {
+		current = total
+	}
+	if current < 0 {
+		current = 0
 	}
 	filled := int(float64(current) / float64(total) * float64(width))
 	if filled > width {

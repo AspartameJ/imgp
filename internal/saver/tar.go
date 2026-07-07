@@ -85,31 +85,26 @@ func BuildLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, er
 	if err != nil {
 		return nil, fmt.Errorf("open cached layer: %w", err)
 	}
+	defer f.Close()
+
 	var magic [2]byte
 	if _, err := f.Read(magic[:]); err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
-		f.Close()
 		return nil, fmt.Errorf("cached layer corrupted (bad gzip header): %s", cacheFile)
 	}
-	f.Close()
 
 	// Full gzip integrity check: decompress and verify CRC
-	gf, err := os.Open(cacheFile)
-	if err != nil {
-		return nil, fmt.Errorf("open cached layer: %w", err)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek cached layer: %w", err)
 	}
-	gr, err := gzip.NewReader(gf)
+	gr, err := gzip.NewReader(f)
 	if err != nil {
-		gf.Close()
 		return nil, fmt.Errorf("cached layer corrupted (invalid gzip): %s: %w", cacheFile, err)
 	}
+	defer gr.Close()
 	if _, err := io.Copy(io.Discard, gr); err != nil {
-		gr.Close()
-		gf.Close()
 		os.Remove(cacheFile)
 		return nil, fmt.Errorf("cached layer corrupted (gzip CRC mismatch): %s: %w", cacheFile, err)
 	}
-	gr.Close()
-	gf.Close()
 
 	return &fileLayer{
 		digest:    digest,

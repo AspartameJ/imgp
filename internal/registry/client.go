@@ -20,6 +20,8 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/config"
 )
 
+const userAgent = "imgp/2.0"
+
 // Client handles registry communication with mirror fallback and auth.
 type Client struct {
 	cfg      *config.Config
@@ -159,6 +161,7 @@ func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, d
 			remote.WithAuth(c.authenticator(reg)),
 			remote.WithTransport(c.transport(reg)),
 			remote.WithContext(ctx),
+			remote.WithUserAgent(userAgent),
 		)
 		if err != nil {
 			return nil, err
@@ -270,6 +273,7 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 				remote.WithAuth(auth),
 				remote.WithTransport(c.transport(reg)),
 				remote.WithContext(ctx),
+				remote.WithUserAgent(userAgent),
 			}
 			if plat != nil {
 				opts = append(opts, remote.WithPlatform(*plat))
