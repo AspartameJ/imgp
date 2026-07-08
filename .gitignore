@@ -15,3 +15,8 @@ imgp.json
 .vscode/
 .idea/
 *.swp
+
+# Coverage artifacts
+cover.html
+cover_total
+cover_total.out

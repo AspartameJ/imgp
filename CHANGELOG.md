@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.1.0 (2026-07-08)
+
+### Added
+- **`--gzip/-z` 标志** — 支持 gzip 压缩导出 tar 文件
+- **版本号嵌入** — `build.ps1 -Version "x.y.z"` 将版本写入二进制，`imgp -v` 正确显示
+- **User-Agent** — HTTP 请求头附带 `imgp/$Version`，方便 registry 审计
+- **镜像表补全** — `registry.k8s.io` 和 `quay.io` 镜像地址在 README 中可见
+- **golangci-lint** — CI 新增 lint 步骤，统一代码质量
+- **CI 缓存** — 缓存 Go 构建/模块目录，加速 CI 运行
+- **单元测试** — 新增 `config`、`puller`、`client`、`saver`、`cmd` 包的全面测试
+- **Mock registry 测试** — 无需外部依赖即可测试镜像拉取流程
+- **config 包** — 分离配置管理逻辑，支持缓存目录自动计算
+
+### Changed
+- **仅支持 Windows/amd64** — 移除 Linux/macOS 构建目标和相关文档，`build.ps1` 只编译 `windows/amd64`
+- **`build.ps1`** — 移除 `-All` 参数，新增 `-Version` 参数（默认 `dev`）
+- **重构** — 定义 `Parallelism` 常量、重命名 `startPull`、拆分 `runSaveOne`、合并 `BuildLayer` 函数
+
+### Fixed
+- **`configPath` 自动设置** — `ConfigPath()` 优先从二进制所在目录查找 `imgp.json`，而非工作目录
+
 ## v2.0.1 (2026-07-02)
 
 ### Fixed

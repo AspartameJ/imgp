@@ -2,7 +2,9 @@
 
 # imgp
 
-**imgp** 是一个跨平台的 Docker 镜像拉取和导出工具。它可以让你从 Docker 镜像仓库（如 Docker Hub、quay.io、gcr.io 等）拉取镜像，并导出为标准 `.tar` 文件。这个 `.tar` 文件可以用 `docker load` 导入到 Docker 中。
+**imgp** 是一个 Windows 平台的 Docker 镜像拉取和导出工具。它可以让你从 Docker 镜像仓库（如 Docker Hub、quay.io、gcr.io 等）拉取镜像，并导出为标准 `.tar` 文件。这个 `.tar` 文件可以用 `docker load` 导入到 Docker 中。
+
+> Go 源码是跨平台的，在 Linux/macOS 上也可以用 `go build` 或 `go install` 编译，但只提供 Windows/amd64 的二进制和 CI 测试。其他平台"可编译但不提供支持"。
 
 > 你不需要在电脑上安装 Docker 就能使用 imgp 拉取镜像。imgp 是纯 Go 编译的单文件，下载即用。
 
@@ -23,24 +25,12 @@
 从 [Releases 页面](https://gitcode.com/DonaldTom/imgp/releases) 下载对应你操作系统的文件：
 
 | 操作系统 | 下载文件 |
-|---|---|
+|---|---|---|
 | Windows (64位) | `imgp-windows-amd64.exe` |
-| Windows (ARM) | `imgp-windows-arm64.exe` |
-| Linux (64位) | `imgp-linux-amd64` |
-| Linux (ARM64) | `imgp-linux-arm64` |
-| macOS (Intel) | `imgp-darwin-amd64` |
-| macOS (Apple Silicon) | `imgp-darwin-arm64` |
 
 下载后：
 
 **Windows**：把 `.exe` 文件放到任意目录，建议放到 `C:\Users\你的用户名\go\bin\` 或其他已加入 `PATH` 的目录。或者直接在文件所在目录打开 PowerShell 运行 `.\imgp-windows-amd64.exe save ...`。
-
-**Linux / macOS**：
-
-```bash
-chmod +x imgp-linux-amd64
-sudo mv imgp-linux-amd64 /usr/local/bin/imgp
-```
 
 ### 方法二：用 Go 安装（需要安装 Go 语言）
 
@@ -298,6 +288,8 @@ imgp config set cache-dir ""      # 重置为 OS 默认
 |---|---|---|
 | `docker.io` | `docker.m.daocloud.io` | DaoCloud 提供的 Docker Hub 镜像 |
 | `gcr.io` | `gcr.mirrors.daocloud.io` | DaoCloud 提供的 Google 镜像 |
+| `registry.k8s.io` | `m.daocloud.io/registry.k8s.io` | DaoCloud 提供的 Kubernetes 镜像 |
+| `quay.io` | `quay.nju.edu.cn` | 南京大学提供的镜像 |
 
 你可以随时添加或修改镜像映射。如果有自己的镜像站，可以这样配置：
 
@@ -339,28 +331,14 @@ Done: hello-world:latest saved to hello-world.tar
 
 ## 源码构建
 
-### Windows
-
 ```powershell
-# 只编译当前平台（默认，快速）
 .\build.ps1
-
-# 编译全部 6 个平台（发布用）
-.\build.ps1 -All
 ```
 
-编译产物在 `bin\` 目录下。
+编译产物在 `bin\imgp.exe`。要嵌入版本号：
 
-### Linux / macOS
-
-```bash
-# 当前平台
-go build -o imgp .
-
-# 指定平台
-GOOS=linux GOARCH=amd64 go build -o imgp-linux-amd64 .
-GOOS=linux GOARCH=arm64 go build -o imgp-linux-arm64 .
-GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
+```powershell
+.\build.ps1 -Version "2.1.0"
 ```
 
 ## 工作原理

@@ -2,7 +2,9 @@ English | [中文](README.md)
 
 # imgp
 
-**imgp** is a cross-platform Docker image pull and save tool. It pulls images from registries (Docker Hub, quay.io, gcr.io, etc.) and exports them as standard `.tar` files that can be imported with `docker load` — no Docker daemon required.
+**imgp** is a Docker image pull and save tool for Windows. It pulls images from registries (Docker Hub, quay.io, gcr.io, etc.) and exports them as standard `.tar` files that can be imported with `docker load` — no Docker daemon required.
+
+> The Go source code is cross-platform and compiles on Linux/macOS via `go build` or `go install`, but only Windows/amd64 binaries and CI are provided. Other platforms are "compilable but not officially supported."
 
 ## Common Use Cases
 
@@ -21,20 +23,8 @@ English | [中文](README.md)
 Download from the [Releases page](https://gitcode.com/DonaldTom/imgp/releases):
 
 | Platform | File |
-|---|---|
+|---|---|---|
 | Windows (64-bit) | `imgp-windows-amd64.exe` |
-| Windows (ARM) | `imgp-windows-arm64.exe` |
-| Linux (64-bit) | `imgp-linux-amd64` |
-| Linux (ARM64) | `imgp-linux-arm64` |
-| macOS (Intel) | `imgp-darwin-amd64` |
-| macOS (Apple Silicon) | `imgp-darwin-arm64` |
-
-**Linux / macOS**:
-
-```bash
-chmod +x imgp-linux-amd64
-sudo mv imgp-linux-amd64 /usr/local/bin/imgp
-```
 
 **Windows**: Place the `.exe` in any directory, or better, in a directory listed in your `PATH` environment variable (e.g., `C:\Users\yourname\go\bin\`).
 
@@ -277,6 +267,8 @@ Supported mirrors:
 |---|---|---|
 | `docker.io` | `docker.m.daocloud.io` | DaoCloud |
 | `gcr.io` | `gcr.mirrors.daocloud.io` | DaoCloud |
+| `registry.k8s.io` | `m.daocloud.io/registry.k8s.io` | DaoCloud |
+| `quay.io` | `quay.nju.edu.cn` | Nanjing University |
 
 Multiple mirrors per registry (separated by `|`):
 
@@ -312,28 +304,14 @@ With multiple layers:
 
 ## Build from source
 
-### Windows
-
 ```powershell
-# Build current platform only (fast, default)
 .\build.ps1
-
-# Build all 6 platforms (for release)
-.\build.ps1 -All
 ```
 
-Output goes to `bin\` directory.
+Output goes to `bin\imgp.exe`. To embed a version number:
 
-### Linux / macOS
-
-```bash
-# Current platform
-go build -o imgp .
-
-# Cross-compile
-GOOS=linux GOARCH=amd64 go build -o imgp-linux-amd64 .
-GOOS=linux GOARCH=arm64 go build -o imgp-linux-arm64 .
-GOOS=darwin GOARCH=arm64 go build -o imgp-darwin-arm64 .
+```powershell
+.\build.ps1 -Version "2.1.0"
 ```
 
 ## How it works

@@ -5,20 +5,97 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
 )
+
+func TestTransport_Default(t *testing.T) {
+	cfg := config.DefaultConfig()
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("docker.io")
+	tr := c.transport(reg)
+	ht, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("transport should be *http.Transport")
+	}
+	if ht.MaxConnsPerHost != 100 {
+		t.Errorf("MaxConnsPerHost = %d, want 100", ht.MaxConnsPerHost)
+	}
+	if ht.TLSClientConfig != nil && ht.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be false by default")
+	}
+}
+
+func TestTransport_Insecure(t *testing.T) {
+	cfg := config.DefaultConfig()
+	c := NewClient(cfg).WithInsecure(true)
+	reg, _ := name.NewRegistry("docker.io")
+	tr := c.transport(reg)
+	ht, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("transport should be *http.Transport")
+	}
+	if ht.TLSClientConfig == nil || !ht.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be true when insecure flag is set")
+	}
+}
+
+func TestTransport_InsecureRegistry(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.InsecureRegistries = []string{"reg.io"}
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("reg.io")
+	tr := c.transport(reg)
+	ht, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("transport should be *http.Transport")
+	}
+	if ht.TLSClientConfig == nil || !ht.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be true for insecure registry")
+	}
+}
+
+func TestTransport_InsecureRegistrySuffix(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.InsecureRegistries = []string{"reg.io"}
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("sub.reg.io")
+	tr := c.transport(reg)
+	ht, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("transport should be *http.Transport")
+	}
+	if ht.TLSClientConfig == nil || !ht.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be true for subdomain of insecure registry")
+	}
+}
+
+func TestTransport_NonInsecureRegistry(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.InsecureRegistries = []string{"reg.io"}
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("other.io")
+	tr := c.transport(reg)
+	ht, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("transport should be *http.Transport")
+	}
+	if ht.TLSClientConfig != nil && ht.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be false for non-insecure registry")
+	}
+}
 
 func TestNormalizeRegistry(t *testing.T) {
 	tests := []struct {
@@ -77,46 +154,115 @@ func TestParsePlatform_Invalid(t *testing.T) {
 	}
 }
 
-func TestIsRetryableFetch(t *testing.T) {
-	if isRetryableFetch(nil) {
-		t.Error("isRetryableFetch(nil) = true, want false")
+func TestAuthenticator_Credentials(t *testing.T) {
+	cfg := config.DefaultConfig()
+	c := NewClient(cfg).WithAuth("myuser", "mypass")
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
 	}
+	if ac.Username != "myuser" || ac.Password != "mypass" {
+		t.Errorf("got %s/%s, want myuser/mypass", ac.Username, ac.Password)
+	}
+}
 
-	netErr := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
-	if !isRetryableFetch(netErr) {
-		t.Error("net.OpError should be retryable")
+func TestAuthenticator_ConfigAuth(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auths = map[string]config.AuthConfig{
+		"docker.io": {Username: "cfguser", Password: "cfgpass"},
 	}
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
+	}
+	if ac.Username != "cfguser" || ac.Password != "cfgpass" {
+		t.Errorf("got %s/%s, want cfguser/cfgpass", ac.Username, ac.Password)
+	}
+}
 
-	timeoutErr := &net.DNSError{IsTimeout: true, Name: "example.com"}
-	wrapped := &net.OpError{Op: "dial", Err: timeoutErr}
-	if !isRetryableFetch(wrapped) {
-		t.Error("timeout should be retryable")
-	}
+func TestAuthenticator_ConfigAuth_WithPasswordEnv(t *testing.T) {
+	os.Setenv("TEST_IMG_PASS", "envpass")
+	defer os.Unsetenv("TEST_IMG_PASS")
 
-	if isRetryableFetch(errors.New("unexpected status code 401 Unauthorized")) {
-		t.Error("401 should not be retryable")
+	cfg := config.DefaultConfig()
+	cfg.Auths = map[string]config.AuthConfig{
+		"docker.io": {Username: "envuser", Password: "fallback", PasswordEnv: "TEST_IMG_PASS"},
 	}
-	if isRetryableFetch(errors.New("unexpected status code 403 Forbidden")) {
-		t.Error("403 should not be retryable")
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
 	}
-	if isRetryableFetch(errors.New("unexpected status code 404 Not Found")) {
-		t.Error("404 should not be retryable")
+	if ac.Username != "envuser" || ac.Password != "envpass" {
+		t.Errorf("got %s/%s, want envuser/envpass", ac.Username, ac.Password)
 	}
+}
 
-	if !isRetryableFetch(errors.New("unexpected status code 502 Bad Gateway")) {
-		t.Error("502 should be retryable")
+func TestAuthenticator_ConfigAuth_PasswordEnvFallback(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auths = map[string]config.AuthConfig{
+		"docker.io": {Username: "falluser", Password: "fallpass", PasswordEnv: "UNSET_VAR"},
 	}
-	if !isRetryableFetch(errors.New("unexpected EOF")) {
-		t.Error("unexpected EOF should be retryable")
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
 	}
-	if !isRetryableFetch(errors.New("connection reset by peer")) {
-		t.Error("connection reset should be retryable")
+	if ac.Username != "falluser" || ac.Password != "fallpass" {
+		t.Errorf("got %s/%s, want falluser/fallpass", ac.Username, ac.Password)
 	}
-	if !isRetryableFetch(errors.New("TLS handshake error")) {
-		t.Error("TLS handshake error should be retryable")
+}
+
+func TestAuthenticator_WildcardAuth(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auths = map[string]config.AuthConfig{
+		"*": {Username: "wilduser", Password: "wildpass"},
 	}
-	if !isRetryableFetch(errors.New("broken pipe")) {
-		t.Error("broken pipe should be retryable")
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("k8s.gcr.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
+	}
+	if ac.Username != "wilduser" || ac.Password != "wildpass" {
+		t.Errorf("got %s/%s, want wilduser/wildpass", ac.Username, ac.Password)
+	}
+}
+
+func TestAuthenticator_Anonymous(t *testing.T) {
+	cfg := config.DefaultConfig()
+	c := NewClient(cfg)
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	if auth != authn.Anonymous {
+		t.Error("expected authn.Anonymous")
+	}
+}
+
+func TestAuthenticator_CredentialsPrecedence(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Auths = map[string]config.AuthConfig{
+		"docker.io": {Username: "cfguser", Password: "cfgpass"},
+	}
+	c := NewClient(cfg).WithAuth("cli_user", "cli_pass")
+	reg, _ := name.NewRegistry("docker.io")
+	auth := c.authenticator(reg)
+	ac, err := auth.Authorization()
+	if err != nil {
+		t.Fatalf("Authorization() error = %v", err)
+	}
+	if ac.Username != "cli_user" || ac.Password != "cli_pass" {
+		t.Errorf("got %s/%s, want cli_user/cli_pass", ac.Username, ac.Password)
 	}
 }
 
@@ -339,6 +485,86 @@ func TestFetchImage_MirrorFallback(t *testing.T) {
 	gotDigest, _ := img.Digest()
 	if origDigest != gotDigest {
 		t.Errorf("digest mismatch: %v vs %v", origDigest, gotDigest)
+	}
+}
+
+func TestNewLayerFetcher(t *testing.T) {
+	cfg := config.DefaultConfig()
+	client := NewClient(cfg)
+	ref, err := name.ParseReference("test:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := client.NewLayerFetcher(ref)
+	if fn == nil {
+		t.Error("NewLayerFetcher returned nil")
+	}
+}
+
+func TestResolveRefs_TagMirror(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = map[string][]string{
+		"docker.io": {"invalid!!!"},
+	}
+	client := NewClient(cfg)
+	ref, err := name.ParseReference("test:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := client.resolveRefs(ref)
+	if len(refs) != 1 {
+		t.Errorf("expected 1 ref (original only, bad mirror skipped), got %d", len(refs))
+	}
+}
+
+func TestResolveRefs_DigestMirror(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = map[string][]string{
+		"docker.io": {"mirror.example.com"},
+	}
+	client := NewClient(cfg)
+	ref, err := name.NewDigest("test@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := client.resolveRefs(ref)
+	// Should return mirror + original
+	if len(refs) != 2 {
+		t.Errorf("expected 2 refs (mirror + original), got %d", len(refs))
+	}
+}
+
+func TestResolveRefs_DigestMirror_Invalid(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = map[string][]string{
+		"docker.io": {"invalid!!!"},
+	}
+	client := NewClient(cfg)
+	ref, err := name.NewDigest("test@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := client.resolveRefs(ref)
+	// Invalid mirror should be skipped, only original returned
+	if len(refs) != 1 {
+		t.Errorf("expected 1 ref (bad mirror skipped), got %d", len(refs))
+	}
+}
+
+func TestResolveRefs_NoMirror(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+	ref, err := name.ParseReference("test:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := client.resolveRefs(ref)
+	if len(refs) != 1 {
+		t.Errorf("expected 1 ref, got %d", len(refs))
+	}
+	if refs[0] != ref {
+		t.Error("expected original ref")
 	}
 }
 

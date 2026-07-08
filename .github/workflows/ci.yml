@@ -7,31 +7,47 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  lint:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
           check-latest: true
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\go-build
+            ~\go\pkg\mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - run: go build ./...
       - run: go vet ./...
-      - run: |
-          gofmt_files=$(gofmt -l .)
-          if [ -n "$gofmt_files" ]; then
-            echo "gofmt needs formatting on:"
-            echo "$gofmt_files"
-            exit 1
-          fi
-        shell: bash
-        if: runner.os != 'Windows'
       - run: go test -cover ./...
-      - if: runner.os == 'Windows'
-        run: |
+      - run: |
           $files = gofmt -l .
           if ($files) { Write-Host "gofmt issues:`n$files"; exit 1 }
         shell: pwsh

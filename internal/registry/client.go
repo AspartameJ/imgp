@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
+	"gitcode.com/DonaldTom/imgp/internal/util"
 	"gitcode.com/DonaldTom/imgp/internal/version"
 )
 
@@ -34,28 +34,34 @@ type Client struct {
 
 // NewClient creates a registry Client from the given config.
 func NewClient(cfg *config.Config) *Client {
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
 	return &Client{cfg: cfg, retry: 2}
 }
 
 // WithAuth sets registry credentials.
 func (c *Client) WithAuth(username, password string) *Client {
-	c.username = username
-	c.password = password
-	return c
+	clone := *c
+	clone.username = username
+	clone.password = password
+	return &clone
 }
 
 // WithInsecure sets whether to skip TLS verification.
 func (c *Client) WithInsecure(v bool) *Client {
-	c.insecure = v
-	return c
+	clone := *c
+	clone.insecure = v
+	return &clone
 }
 
 // WithRetry sets the max retry count for fetch operations.
 func (c *Client) WithRetry(n int) *Client {
+	clone := *c
 	if n >= 0 {
-		c.retry = n
+		clone.retry = n
 	}
-	return c
+	return &clone
 }
 
 func (c *Client) transport(reg name.Registry) http.RoundTripper {
@@ -179,28 +185,6 @@ func normalizeRegistry(reg string) string {
 	return reg
 }
 
-func isRetryableFetch(err error) bool {
-	if err == nil {
-		return false
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-	msg := err.Error()
-	if strings.Contains(msg, "unexpected status code 4") {
-		return false
-	}
-	retryable := []string{"unexpected EOF", "connection reset", "connection refused",
-		"TLS handshake", "broken pipe"}
-	for _, s := range retryable {
-		if strings.Contains(msg, s) {
-			return true
-		}
-	}
-	return strings.Contains(msg, "unexpected status code 5")
-}
-
 // FetchImage retrieves an image from the registry with mirror fallback and retry.
 func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Image, name.Reference, error) {
 	ref, err := name.ParseReference(image)
@@ -208,94 +192,92 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 		return nil, nil, fmt.Errorf("parse image reference: %w", err)
 	}
 
-	var refsToTry []name.Reference
-
-	if tag, ok := ref.(name.Tag); ok {
-		regStr := normalizeRegistry(tag.Context().RegistryStr())
-
-		// Check MirrorMap first
-		if mirrors, ok := c.cfg.MirrorMap[regStr]; ok {
-			repoPath := tag.Context().RepositoryStr()
-			tagStr := tag.TagStr()
-			for _, m := range mirrors {
-				mirrorTag, err := name.NewTag(fmt.Sprintf("%s/%s:%s", m, repoPath, tagStr))
-				if err != nil {
-					continue
-				}
-				refsToTry = append(refsToTry, mirrorTag)
-			}
-		}
-
-	}
-
-	refsToTry = append(refsToTry, ref)
-
+	refsToTry := c.resolveRefs(ref)
 	plat := parsePlatform(platform)
-
 	origAuth := c.authenticator(ref.Context().Registry)
 
+	skipRef := make(map[string]bool)
 	var lastErr error
-	var anyRetryable bool
 	for attempt := 0; attempt <= c.retry; attempt++ {
 		if attempt > 0 {
-			if !anyRetryable {
-				break
-			}
-			anyRetryable = false
-			shift := attempt - 1
-			const maxShift = 30
-			if shift > maxShift {
-				shift = maxShift
-			}
-			backoff := time.Duration(1<<uint(shift)) * time.Second
-			const maxBackoff = 30 * time.Second
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			timer := time.NewTimer(backoff)
-			select {
-			case <-ctx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
-				return nil, nil, ctx.Err()
-			case <-timer.C:
+			if err := util.Backoff(ctx, attempt); err != nil {
+				return nil, nil, err
 			}
 		}
 
 		var errs []string
+		var anyRetryable bool
 		for _, r := range refsToTry {
-			reg := r.Context().Registry
-			auth := c.authenticator(reg)
-			if c.username == "" && auth == authn.Anonymous && origAuth != authn.Anonymous {
-				auth = origAuth
+			if skipRef[r.String()] {
+				continue
 			}
-			opts := []remote.Option{
-				remote.WithAuth(auth),
-				remote.WithTransport(c.transport(reg)),
-				remote.WithContext(ctx),
-				remote.WithUserAgent(userAgent),
-			}
-			if plat != nil {
-				opts = append(opts, remote.WithPlatform(*plat))
-			}
-
-			img, err := remote.Image(r, opts...)
+			img, err := c.tryReference(ctx, r, origAuth, plat)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
 				lastErr = err
-				if isRetryableFetch(err) {
+				if util.IsRetryable(err) {
 					anyRetryable = true
+				} else {
+					skipRef[r.String()] = true
 				}
 				continue
 			}
 			return img, r, nil
 		}
 
-		if attempt == c.retry || !anyRetryable {
+		if !anyRetryable || attempt == c.retry {
 			return nil, nil, fmt.Errorf("all registries failed:\n  %s", strings.Join(errs, "\n  "))
 		}
 	}
-	// Keep compiler happy: loop always returns, but Go can't prove c.retry >= 0
 	return nil, nil, fmt.Errorf("all registries failed: %v", lastErr)
+}
+
+func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
+	var refs []name.Reference
+
+	regStr := normalizeRegistry(ref.Context().RegistryStr())
+	if mirrors, ok := c.cfg.MirrorMap[regStr]; ok {
+		repoPath := ref.Context().RepositoryStr()
+
+		switch r := ref.(type) {
+		case name.Tag:
+			tagStr := r.TagStr()
+			for _, m := range mirrors {
+				mirrorTag, err := name.NewTag(fmt.Sprintf("%s/%s:%s", m, repoPath, tagStr))
+				if err != nil {
+					continue
+				}
+				refs = append(refs, mirrorTag)
+			}
+		case name.Digest:
+			digestStr := r.DigestStr()
+			for _, m := range mirrors {
+				mirrorDigest, err := name.NewDigest(fmt.Sprintf("%s/%s@%s", m, repoPath, digestStr))
+				if err != nil {
+					continue
+				}
+				refs = append(refs, mirrorDigest)
+			}
+		}
+	}
+
+	return append(refs, ref)
+}
+
+func (c *Client) tryReference(ctx context.Context, r name.Reference, origAuth authn.Authenticator, plat *v1.Platform) (v1.Image, error) {
+	reg := r.Context().Registry
+	auth := c.authenticator(reg)
+	if c.username == "" && auth == authn.Anonymous && origAuth != authn.Anonymous {
+		auth = origAuth
+	}
+	opts := []remote.Option{
+		remote.WithAuth(auth),
+		remote.WithTransport(c.transport(reg)),
+		remote.WithContext(ctx),
+		remote.WithUserAgent(userAgent),
+	}
+	if plat != nil {
+		opts = append(opts, remote.WithPlatform(*plat))
+	}
+	return remote.Image(r, opts...)
 }

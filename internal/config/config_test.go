@@ -31,20 +31,15 @@ func TestLoad_FileNotExist(t *testing.T) {
 
 func TestLoad_ValidJSON(t *testing.T) {
 	cp := filepath.Join(t.TempDir(), "imgp.json")
-	t.Logf("config path: %s", cp)
 
 	data := `{"parallelism": 8, "retry": 5, "mirror_map": {"docker.io": ["m.test"]}}`
 	if err := os.WriteFile(cp, []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	orig := ConfigPath
-	ConfigPath = func() string { return cp }
-	defer func() { ConfigPath = orig }()
-
-	cfg, err := Load()
+	cfg, err := LoadFrom(cp)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("LoadFrom() error = %v", err)
 	}
 	if cfg.Parallelism != 8 {
 		t.Errorf("Parallelism = %d, want 8", cfg.Parallelism)
@@ -59,9 +54,6 @@ func TestLoad_ValidJSON(t *testing.T) {
 
 func TestSave(t *testing.T) {
 	cp := filepath.Join(t.TempDir(), "imgp.json")
-	orig := ConfigPath
-	ConfigPath = func() string { return cp }
-	defer func() { ConfigPath = orig }()
 
 	cfg := DefaultConfig()
 	cfg.configPath = cp
@@ -71,9 +63,9 @@ func TestSave(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	cfg2, err := Load()
+	cfg2, err := LoadFrom(cp)
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("LoadFrom() error = %v", err)
 	}
 	if cfg2.Parallelism != 6 {
 		t.Errorf("Parallelism = %d, want 6", cfg2.Parallelism)
@@ -85,9 +77,6 @@ func TestSave(t *testing.T) {
 
 func TestSave_StripPassword(t *testing.T) {
 	cp := filepath.Join(t.TempDir(), "imgp.json")
-	orig := ConfigPath
-	ConfigPath = func() string { return cp }
-	defer func() { ConfigPath = orig }()
 
 	cfg := DefaultConfig()
 	cfg.configPath = cp
@@ -98,7 +87,7 @@ func TestSave_StripPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg2, err := Load()
+	cfg2, err := LoadFrom(cp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +101,137 @@ func TestSave_StripPassword(t *testing.T) {
 	if a.PasswordEnv != "PASS" {
 		t.Errorf("PasswordEnv = %q, want PASS", a.PasswordEnv)
 	}
+}
+
+func TestOsDefaultCacheDir(t *testing.T) {
+	t.Run("with LOCALAPPDATA", func(t *testing.T) {
+		original := os.Getenv("LOCALAPPDATA")
+		defer os.Setenv("LOCALAPPDATA", original)
+		os.Setenv("LOCALAPPDATA", "D:\\test\\appdata")
+
+		got := osDefaultCacheDir()
+		want := "D:\\test\\appdata\\imgp\\cache"
+		if got != want {
+			t.Errorf("osDefaultCacheDir = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("LOCALAPPDATA unset falls back to TempDir", func(t *testing.T) {
+		original := os.Getenv("LOCALAPPDATA")
+		defer os.Setenv("LOCALAPPDATA", original)
+		os.Unsetenv("LOCALAPPDATA")
+
+		got := osDefaultCacheDir()
+		if got == "" {
+			t.Error("osDefaultCacheDir should not be empty")
+		}
+	})
+}
+
+func TestLoadFrom_InvalidJSON(t *testing.T) {
+	cp := filepath.Join(t.TempDir(), "imgp.json")
+	if err := os.WriteFile(cp, []byte("{bad json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadFrom(cp)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestLoadFrom_ReadError(t *testing.T) {
+	// os.ReadFile on a directory returns a non-NotExist error.
+	tmp := t.TempDir()
+	_, err := LoadFrom(tmp)
+	if err == nil {
+		t.Fatal("expected error for reading a directory as config")
+	}
+}
+
+func TestLoadFrom_Validation(t *testing.T) {
+	t.Run("nil MirrorMap gets default", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"mirror_map": null}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.MirrorMap == nil {
+			t.Error("MirrorMap should not be nil after validation")
+		}
+	})
+
+	t.Run("Parallelism less than 1 defaults", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"parallelism": 0}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Parallelism != DefaultParallelism {
+			t.Errorf("Parallelism = %d, want %d", cfg.Parallelism, DefaultParallelism)
+		}
+	})
+
+	t.Run("negative LayerTimeout clamps to 0", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"layer_timeout": -5}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LayerTimeout != 0 {
+			t.Errorf("LayerTimeout = %d, want 0", cfg.LayerTimeout)
+		}
+	})
+
+	t.Run("negative Timeout clamps to 0", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"timeout": -1}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 0 {
+			t.Errorf("Timeout = %d, want 0", cfg.Timeout)
+		}
+	})
+
+	t.Run("negative Retry clamps to 0", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"retry": -3}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Retry != 0 {
+			t.Errorf("Retry = %d, want 0", cfg.Retry)
+		}
+	})
+
+	t.Run("valid retry is preserved", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"retry": 0}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Retry != 0 {
+			t.Errorf("Retry = %d, want 0", cfg.Retry)
+		}
+	})
 }
 
 func TestEffectiveCacheDir(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 const DefaultParallelism = 4
@@ -38,6 +37,7 @@ func DefaultConfig() *Config {
 			"docker.io":       {"docker.m.daocloud.io"},
 			"gcr.io":          {"gcr.mirrors.daocloud.io"},
 			"registry.k8s.io": {"m.daocloud.io/registry.k8s.io"},
+			"quay.io":         {"quay.nju.edu.cn"},
 		},
 		Parallelism: DefaultParallelism,
 		Retry:       2,
@@ -45,8 +45,7 @@ func DefaultConfig() *Config {
 }
 
 // ConfigPath returns the path to imgp.json (next to the binary).
-// Exposed as a var for test injection.
-var ConfigPath = func() string {
+func ConfigPath() string {
 	exe, err := os.Executable()
 	if err == nil {
 		return filepath.Join(filepath.Dir(exe), "imgp.json")
@@ -57,12 +56,12 @@ var ConfigPath = func() string {
 	return filepath.Join(".", "imgp.json")
 }
 
-// Load reads and parses imgp.json, returning defaults if the file does not exist.
-func Load() (*Config, error) {
+// LoadFrom reads and parses a config from the given path.
+func LoadFrom(path string) (*Config, error) {
 	cfg := DefaultConfig()
-	cfg.configPath = ConfigPath()
+	cfg.configPath = path
 
-	data, err := os.ReadFile(cfg.configPath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -93,6 +92,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// Load reads and parses imgp.json, returning defaults if the file does not exist.
+func Load() (*Config, error) {
+	return LoadFrom(ConfigPath())
+}
+
 // Save writes the configuration to imgp.json.
 func (c *Config) Save() error {
 	if c.configPath == "" {
@@ -116,27 +120,9 @@ func (c *Config) Save() error {
 }
 
 func osDefaultCacheDir() string {
-	switch runtime.GOOS {
-	case "windows":
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if localAppData != "" {
-			return filepath.Join(localAppData, "imgp", "cache")
-		}
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			return filepath.Join(home, "Library", "Caches", "imgp")
-		}
-	default: // linux and others
-		if cacheHome := os.Getenv("XDG_CACHE_HOME"); cacheHome != "" {
-			return filepath.Join(cacheHome, "imgp")
-		}
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			return filepath.Join(home, ".cache", "imgp")
-		}
+	if d := os.Getenv("LOCALAPPDATA"); d != "" {
+		return filepath.Join(d, "imgp", "cache")
 	}
-	// Fallback
 	return filepath.Join(os.TempDir(), "imgp-cache")
 }
 
