@@ -9,6 +9,14 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+    - goconst
+    - gosec
+    - noctx
+    - bodyclose
+    - prealloc
 
 issues:
   exclude-use-default: false
+  exclude:
+    - "G104"  # Allow unchecked errors in defer (common Go pattern)
+    - "G307"  # Allow unchecked errors when closing via defer

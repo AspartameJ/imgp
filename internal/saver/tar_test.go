@@ -2,6 +2,7 @@ package saver
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -408,6 +410,39 @@ func TestOpenCachedLayer_CorruptedGzip(t *testing.T) {
 	_, err := OpenCachedLayer(l, cacheFile)
 	if err == nil {
 		t.Fatal("expected error for corrupted gzip")
+	}
+}
+
+func TestVerifyGzip_MarkerSkip(t *testing.T) {
+	dir := t.TempDir()
+	cacheFile := filepath.Join(dir, "test.gz")
+	os.WriteFile(cacheFile, []byte("not-valid-gzip"), 0644)
+	os.WriteFile(cacheFile+".verified", nil, 0644)
+
+	err := verifyGzip(cacheFile)
+	if err != nil {
+		t.Fatalf("expected skip (nil), got %v", err)
+	}
+}
+
+func TestVerifyGzip_StaleMarkerRevalidates(t *testing.T) {
+	dir := t.TempDir()
+	cacheFile := filepath.Join(dir, "test.gz")
+	markerFile := cacheFile + ".verified"
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	gw.Write([]byte("valid data"))
+	gw.Close()
+	os.WriteFile(cacheFile, buf.Bytes(), 0644)
+	os.WriteFile(markerFile, nil, 0644)
+	os.Chtimes(markerFile, time.Now(), time.Now().Add(-time.Second))
+
+	os.WriteFile(cacheFile, []byte("corrupted"), 0644)
+
+	err := verifyGzip(cacheFile)
+	if err == nil {
+		t.Fatal("expected re-validation and error for corrupted file after marker")
 	}
 }
 

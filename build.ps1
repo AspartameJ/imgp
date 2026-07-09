@@ -2,7 +2,7 @@ param(
     [string]$Version = "dev"
 )
 
-$ldflags = "-X 'internal/version.Version=$Version'"
+$ldflags = "-X 'gitcode.com/DonaldTom/imgp/internal/version.Version=$Version'"
 
 New-Item -ItemType Directory -Path "bin" -Force | Out-Null
 

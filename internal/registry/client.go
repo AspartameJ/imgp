@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -37,7 +39,11 @@ func NewClient(cfg *config.Config) *Client {
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	return &Client{cfg: cfg, retry: 2}
+	r := 2
+	if cfg.Retry >= 0 {
+		r = cfg.Retry
+	}
+	return &Client{cfg: cfg, retry: r}
 }
 
 // WithAuth sets registry credentials.
@@ -64,7 +70,24 @@ func (c *Client) WithRetry(n int) *Client {
 	return &clone
 }
 
+var transportCache sync.Map // key: string(host+insecure), value: *http.Transport
+
 func (c *Client) transport(reg name.Registry) http.RoundTripper {
+	insecure := c.insecure
+	regName := normalizeRegistry(reg.Name())
+	for _, ir := range c.cfg.InsecureRegistries {
+		if regName == ir || strings.HasSuffix(regName, "."+ir) {
+			insecure = true
+			break
+		}
+	}
+	cacheKey := regName + ":" + strconv.FormatBool(insecure)
+	if cached, ok := transportCache.Load(cacheKey); ok {
+		if t, ok := cached.(*http.Transport); ok {
+			return t
+		}
+	}
+
 	dt, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return http.DefaultTransport
@@ -77,20 +100,10 @@ func (c *Client) transport(reg name.Registry) http.RoundTripper {
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}).DialContext
-	if c.insecure {
+	if insecure {
 		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		return t
 	}
-	regName := normalizeRegistry(reg.Name())
-	for _, ir := range c.cfg.InsecureRegistries {
-		if regName == ir || strings.HasSuffix(regName, "."+ir) {
-			if t.TLSClientConfig == nil {
-				t.TLSClientConfig = &tls.Config{}
-			}
-			t.TLSClientConfig.InsecureSkipVerify = true
-			break
-		}
-	}
+	transportCache.Store(cacheKey, t)
 	return t
 }
 
@@ -102,31 +115,29 @@ func (c *Client) authenticator(reg name.Registry) authn.Authenticator {
 		})
 	}
 	regName := normalizeRegistry(reg.Name())
-	if a, ok := c.cfg.Auths[regName]; ok {
-		password := a.Password
-		if a.PasswordEnv != "" {
-			if p, ok := os.LookupEnv(a.PasswordEnv); ok {
-				password = p
-			}
-		}
-		return authn.FromConfig(authn.AuthConfig{
-			Username: a.Username,
-			Password: password,
-		})
+	if a := c.resolveAuth(regName); a != nil {
+		return authn.FromConfig(*a)
 	}
-	if a, ok := c.cfg.Auths["*"]; ok {
-		password := a.Password
-		if a.PasswordEnv != "" {
-			if p, ok := os.LookupEnv(a.PasswordEnv); ok {
-				password = p
-			}
-		}
-		return authn.FromConfig(authn.AuthConfig{
-			Username: a.Username,
-			Password: password,
-		})
+	if a := c.resolveAuth("*"); a != nil {
+		return authn.FromConfig(*a)
 	}
 	return authn.Anonymous
+}
+
+func (c *Client) resolveAuth(regName string) *authn.AuthConfig {
+	a, ok := c.cfg.Auths[regName]
+	if !ok {
+		return nil
+	}
+	password := a.Password
+	if a.PasswordEnv != "" {
+		if p, ok := os.LookupEnv(a.PasswordEnv); ok && p != "" {
+			password = p
+		} else {
+			fmt.Fprintf(os.Stderr, "WARN: password environment variable %q is unset or empty\n", a.PasswordEnv)
+		}
+	}
+	return &authn.AuthConfig{Username: a.Username, Password: password}
 }
 
 func parsePlatform(platform string) *v1.Platform {
@@ -134,22 +145,16 @@ func parsePlatform(platform string) *v1.Platform {
 		return nil
 	}
 	p := &v1.Platform{}
-	if strings.Contains(platform, "/") {
-		parts := strings.Split(platform, "/")
-		for _, part := range parts {
-			if part == "" {
-				return nil
-			}
-		}
-		if len(parts) < 2 || len(parts) > 3 {
-			return nil
-		}
+	parts := strings.Split(platform, "/")
+	switch len(parts) {
+	case 2:
 		p.OS = parts[0]
 		p.Architecture = parts[1]
-		if len(parts) > 2 {
-			p.Variant = parts[2]
-		}
-	} else {
+	case 3:
+		p.OS = parts[0]
+		p.Architecture = parts[1]
+		p.Variant = parts[2]
+	default:
 		p.OS = "linux"
 		p.Architecture = platform
 	}
@@ -233,6 +238,7 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 }
 
 func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
+	seen := map[string]bool{ref.String(): true}
 	var refs []name.Reference
 
 	regStr := normalizeRegistry(ref.Context().RegistryStr())
@@ -245,18 +251,28 @@ func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
 			for _, m := range mirrors {
 				mirrorTag, err := name.NewTag(fmt.Sprintf("%s/%s:%s", m, repoPath, tagStr))
 				if err != nil {
+					fmt.Fprintf(os.Stderr, "WARN: invalid mirror ref %q: %v\n", m, err)
 					continue
 				}
-				refs = append(refs, mirrorTag)
+				s := mirrorTag.String()
+				if !seen[s] {
+					seen[s] = true
+					refs = append(refs, mirrorTag)
+				}
 			}
 		case name.Digest:
 			digestStr := r.DigestStr()
 			for _, m := range mirrors {
 				mirrorDigest, err := name.NewDigest(fmt.Sprintf("%s/%s@%s", m, repoPath, digestStr))
 				if err != nil {
+					fmt.Fprintf(os.Stderr, "WARN: invalid mirror ref %q: %v\n", m, err)
 					continue
 				}
-				refs = append(refs, mirrorDigest)
+				s := mirrorDigest.String()
+				if !seen[s] {
+					seen[s] = true
+					refs = append(refs, mirrorDigest)
+				}
 			}
 		}
 	}

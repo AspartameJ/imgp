@@ -62,10 +62,7 @@ func TestE2E_FullPipeline(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer func() {
-				runtime.GC()
-				os.RemoveAll(cacheDir)
-			}()
+			defer func() { runtime.GC(); os.RemoveAll(cacheDir) }()
 
 			layerFetcher := client.NewLayerFetcher(ref)
 			imgLayers, err := fetchedImg.Layers()

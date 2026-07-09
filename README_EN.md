@@ -103,7 +103,7 @@ Full flags:
 | `-p, --platform` | string | `linux/amd64` | Target platform. Format: `os/arch` or `os/arch/variant`, e.g. `linux/arm64`, `linux/arm64/v8`, `windows/amd64` |
 | `--username` | string | (empty) | Registry username |
 | `--password` | string | (empty) | Registry password. Takes priority over `--password-env`. Note: visible in process listings; use `--password-env` instead |
-| `--password-env` | string | `IMG_REGISTRY_PASSWORD` | Env var name holding the password (used when `--password` is not set) |
+| `--password-env` | string | (empty) | Env var name holding the password (used when `--password` is not set). Example: `IMG_REGISTRY_PASSWORD` |
 | `--insecure` | bool | `false` | Allow HTTP connections (skip TLS verify), for internal registries |
 | `-P, --parallel` | int | from config, default `4` | Number of parallel layer downloads. Increase for fast networks (e.g. 8), decrease for slow (e.g. 2) |
 | `--no-cache` | bool | `false` | Ignore local cache, force re-download all layers |

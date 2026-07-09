@@ -44,10 +44,16 @@ func cacheClear(cfg *config.Config) (removed int, freed int64) {
 	cd := cmdCacheDir(cfg)
 	if entries, err := os.ReadDir(cd); err == nil {
 		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".gz") {
+			if e.IsDir() {
 				continue
 			}
-			if e.IsDir() {
+			if strings.HasSuffix(e.Name(), ".verified") {
+				if err := os.Remove(filepath.Join(cd, e.Name())); err != nil && !os.IsNotExist(err) {
+					fmt.Fprintf(os.Stderr, "cache clear: remove %s: %v\n", e.Name(), err)
+				}
+				continue
+			}
+			if !strings.HasSuffix(e.Name(), ".gz") {
 				continue
 			}
 			if err := os.Remove(filepath.Join(cd, e.Name())); err != nil && !os.IsNotExist(err) {

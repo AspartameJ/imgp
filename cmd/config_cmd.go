@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -50,11 +52,22 @@ var configListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if _, statErr := os.Stat(config.ConfigPath()); os.IsNotExist(statErr) {
+			fmt.Fprintf(os.Stderr, "# Config file not found at %s, using defaults.\n# Run `imgp config set <key> <value>` to create one.\n\n", config.ConfigPath())
+		}
+		lt := "0"
+		if cfg.LayerTimeout != nil {
+			lt = fmt.Sprintf("%d", *cfg.LayerTimeout)
+		}
+		to := "0"
+		if cfg.Timeout != nil {
+			to = fmt.Sprintf("%d", *cfg.Timeout)
+		}
 		data := fmt.Sprintf("Mirror Map: %v\n", cfg.MirrorMap)
 		data += fmt.Sprintf("Insecure Registries: %v\n", cfg.InsecureRegistries)
 		data += fmt.Sprintf("Parallelism: %d\n", cfg.Parallelism)
-		data += fmt.Sprintf("Layer Timeout: %d min\n", cfg.LayerTimeout)
-		data += fmt.Sprintf("Timeout: %d min\n", cfg.Timeout)
+		data += fmt.Sprintf("Layer Timeout: %s min\n", lt)
+		data += fmt.Sprintf("Timeout: %s min\n", to)
 		data += fmt.Sprintf("Retry: %d\n", cfg.Retry)
 		data += fmt.Sprintf("Cache Dir: %s\n", cfg.CacheDir)
 		_, err = fmt.Print(data)
@@ -65,6 +78,11 @@ var configListCmd = &cobra.Command{
 func setConfigKey(cfg *config.Config, key, value string) error {
 	switch key {
 	case "mirror-map":
+		value = strings.TrimSpace(value)
+		if value == "" {
+			cfg.MirrorMap = make(map[string][]string)
+			break
+		}
 		if cfg.MirrorMap == nil {
 			cfg.MirrorMap = make(map[string][]string)
 		}
@@ -90,33 +108,33 @@ func setConfigKey(cfg *config.Config, key, value string) error {
 		}
 		cfg.InsecureRegistries = list
 	case "parallelism":
-		n := 0
-		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 1 {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 {
 			return fmt.Errorf("parallelism must be a positive integer")
 		}
 		cfg.Parallelism = n
 	case "layer-timeout":
-		n := 0
-		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
 			return fmt.Errorf("layer-timeout must be 0 or a positive integer")
 		}
-		cfg.LayerTimeout = n
+		cfg.LayerTimeout = &n
 	case "timeout":
-		n := 0
-		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
 			return fmt.Errorf("timeout must be 0 or a positive integer")
 		}
-		cfg.Timeout = n
+		cfg.Timeout = &n
+	case "cache-dir":
+		cfg.CacheDir = value
 	case "retry":
-		n := 0
-		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
 			return fmt.Errorf("retry must be 0 or a positive integer")
 		}
 		cfg.Retry = n
-	case "cache-dir":
-		cfg.CacheDir = value
 	default:
-		return fmt.Errorf("unknown key: %s (supported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout, retry, cache-dir)", key)
+		return fmt.Errorf("unknown key: %s\nsupported: mirror-map, insecure-registries, parallelism, layer-timeout, timeout, retry, cache-dir", key)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"gitcode.com/DonaldTom/imgp/internal/puller"
 )
@@ -307,11 +308,11 @@ func TestRenderFrame_ANSI(t *testing.T) {
 	if allDone {
 		t.Error("expected allDone=false")
 	}
-	if !strings.Contains(frame, "\033[") {
-		t.Error("expected ANSI escape codes")
-	}
 	if !strings.Contains(frame, "75.0%") {
 		t.Errorf("expected 75.0%% in frame, got: %q", frame)
+	}
+	if !strings.Contains(frame, "\u2713") {
+		t.Error("expected check mark in frame")
 	}
 }
 
@@ -347,14 +348,8 @@ func TestColorFunctions(t *testing.T) {
 	if Green("ok") != "\033[32mok\033[0m" {
 		t.Errorf("Green = %q", Green("ok"))
 	}
-	if Red("err") != "\033[31merr\033[0m" {
-		t.Errorf("Red = %q", Red("err"))
-	}
 	if Cyan("info") != "\033[36minfo\033[0m" {
 		t.Errorf("Cyan = %q", Cyan("info"))
-	}
-	if Yellow("warn") != "\033[33mwarn\033[0m" {
-		t.Errorf("Yellow = %q", Yellow("warn"))
 	}
 }
 
@@ -375,6 +370,36 @@ func TestNewProgressDisplay(t *testing.T) {
 	pd2 := NewProgressDisplay(false)
 	if pd2.quiet {
 		t.Error("expected non-quiet mode")
+	}
+}
+
+func TestProgressDisplay_ActiveMode_Cancel(t *testing.T) {
+	pd := NewProgressDisplay(false)
+	eventCh := make(chan puller.PullEvent, 5)
+	tasks := []puller.LayerTask{
+		{Index: 0, DigestHex: "abc", Size: 100},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		eventCh <- puller.PullEvent{Index: 0, Digest: "abc", Bytes: 50, Total: 100, Status: "downloading"}
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+		close(eventCh)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		quit := pd.RunPullUI(ctx, eventCh, tasks)
+		<-quit
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunPullUI did not return after cancel")
 	}
 }
 

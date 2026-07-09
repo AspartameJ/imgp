@@ -59,7 +59,6 @@ func Execute() {
 	defer cancel()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		cancel()
 		os.Exit(1)
 	}
 }

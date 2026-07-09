@@ -88,16 +88,17 @@ func resolveSaveParams(cmd *cobra.Command, cfg *config.Config, image string) (sa
 		p.parallelism = config.DefaultParallelism
 	}
 
-	p.layerTimeout = cfg.LayerTimeout
 	if cmd.Flags().Changed("layer-timeout") {
 		p.layerTimeout = layerTimeoutMin
-	} else if p.layerTimeout == 0 {
+	} else if cfg.LayerTimeout != nil {
+		p.layerTimeout = *cfg.LayerTimeout
+	} else {
 		p.layerTimeout = 30
 	}
 
 	p.overallTimeout = timeoutMin
-	if !cmd.Flags().Changed("timeout") && p.overallTimeout == 0 && cfg.Timeout > 0 {
-		p.overallTimeout = cfg.Timeout
+	if !cmd.Flags().Changed("timeout") && cfg.Timeout != nil {
+		p.overallTimeout = *cfg.Timeout
 	}
 
 	p.retry = cfg.Retry

@@ -1,5 +1,5 @@
 VERSION ?= dev
-GOFLAGS = -ldflags="-X 'internal/version.Version=$(VERSION)'"
+GOFLAGS = -ldflags="-X 'gitcode.com/DonaldTom/imgp/internal/version.Version=$(VERSION)'"
 
 .PHONY: all build test lint clean vet fmt release
 

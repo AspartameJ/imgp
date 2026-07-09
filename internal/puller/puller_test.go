@@ -75,6 +75,7 @@ func TestPull_CacheHit(t *testing.T) {
 
 	digest := "abcdef"
 	createGzipLayer(t, dir, digest, []byte("layer data"))
+	os.WriteFile(filepath.Join(dir, digest+".gz.verified"), nil, 0644)
 	size := cacheSize(t, dir, digest)
 
 	var openCalled bool
@@ -99,6 +100,32 @@ func TestPull_CacheHit(t *testing.T) {
 		t.Error("OpenLayer should not be called on cache hit")
 	}
 	assertStatus(t, events, 1, "cached")
+}
+
+func TestBackoffOrSendError_Cancel(t *testing.T) {
+	p := &Puller{}
+	ch := make(chan PullEvent, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ok := p.backoffOrSendError(ctx, ch, LayerTask{}, 5)
+	if ok {
+		t.Error("expected backoffOrSendError to return false on cancelled context")
+	}
+}
+
+func TestBackoffOrSendError_Success(t *testing.T) {
+	p := &Puller{}
+	ch := make(chan PullEvent, 1)
+	ok := p.backoffOrSendError(context.Background(), ch, LayerTask{}, 0)
+	if !ok {
+		t.Error("expected backoffOrSendError to return true")
+	}
+	select {
+	case <-ch:
+		t.Error("unexpected event on channel")
+	default:
+	}
 }
 
 func TestPull_CacheMiss_Success(t *testing.T) {
@@ -234,8 +261,6 @@ func TestPull_MultipleTasks(t *testing.T) {
 	}
 	tasks := make([]LayerTask, 2)
 	for i, payload := range payloads {
-		i := i
-		payload := payload
 		tasks[i] = LayerTask{
 			Index:     i,
 			DigestHex: digestFromInt(i),
@@ -321,6 +346,66 @@ func TestPull_SizeMismatch(t *testing.T) {
 	if last.Status != "error" {
 		t.Errorf("final status = %q, want error on size mismatch", last.Status)
 	}
+}
+
+func TestPull_LayerTimeout(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithLayerTimeout(10 * time.Millisecond).WithRetry(0)
+
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: "slow-layer",
+		Size:      1000,
+		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}}
+
+	eventCh, err := p.Pull(context.Background(), tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := collectEvents(t, eventCh)
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	last := events[len(events)-1]
+	if last.Status != "error" {
+		t.Errorf("expected final status 'error', got %q", last.Status)
+	}
+}
+
+func TestPull_ContextDeadline(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithRetry(0)
+
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: "deadline-layer",
+		Size:      1000,
+		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := collectEvents(t, eventCh)
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	// When the context expires, the final "error" event may not be sent
+	// because sendEvent checks ctx.Done() before writing. We just verify
+	// no panic/deadlock and that at least one event was received.
 }
 
 func TestPull_RetryThenSuccess(t *testing.T) {

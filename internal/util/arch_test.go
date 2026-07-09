@@ -2,6 +2,7 @@ package util
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 )
@@ -44,6 +45,32 @@ func TestIsValidArch(t *testing.T) {
 		if IsValidArch(a) {
 			t.Errorf("IsValidArch(%q) = true, want false", a)
 		}
+	}
+}
+
+func TestIsConnectivityError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"timeout net.Error", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("timeout")}, true},
+		{"dial tcp", fmt.Errorf("dial tcp 1.2.3.4:80: connection refused"), true},
+		{"connection reset", fmt.Errorf("read: connection reset by peer"), true},
+		{"TLS handshake", fmt.Errorf("TLS handshake error"), true},
+		{"broken pipe", fmt.Errorf("write: broken pipe"), true},
+		{"i/o timeout", fmt.Errorf("i/o timeout"), true},
+		{"HTTP 500", fmt.Errorf("unexpected status code 500"), false},
+		{"HTTP 404", fmt.Errorf("unexpected status code 404"), false},
+		{"random", fmt.Errorf("something else"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsConnectivityError(tt.err); got != tt.want {
+				t.Errorf("IsConnectivityError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 

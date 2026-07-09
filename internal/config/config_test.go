@@ -3,8 +3,40 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestOsDefaultCacheDir_LocalAppData(t *testing.T) {
+	const key = "LOCALAPPDATA"
+	old := os.Getenv(key)
+	defer os.Setenv(key, old)
+	os.Setenv(key, `D:\appdata`)
+
+	dir := osDefaultCacheDir()
+	want := `D:\appdata\imgp\cache`
+	if dir != want {
+		t.Errorf("got %q, want %q", dir, want)
+	}
+}
+
+func TestOsDefaultCacheDir_XDG(t *testing.T) {
+	const laKey = "LOCALAPPDATA"
+	const xdgKey = "XDG_CACHE_HOME"
+	oldLA := os.Getenv(laKey)
+	oldXDG := os.Getenv(xdgKey)
+	defer func() {
+		os.Setenv(laKey, oldLA)
+		os.Setenv(xdgKey, oldXDG)
+	}()
+	os.Unsetenv(laKey)
+	os.Setenv(xdgKey, "/custom/xdg")
+
+	dir := osDefaultCacheDir()
+	if !strings.Contains(dir, "xdg") && !strings.Contains(dir, "imgp") {
+		t.Errorf("expected dir containing 'xdg' and 'imgp', got %q", dir)
+	}
+}
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
@@ -186,8 +218,8 @@ func TestLoadFrom_Validation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.LayerTimeout != 0 {
-			t.Errorf("LayerTimeout = %d, want 0", cfg.LayerTimeout)
+		if cfg.LayerTimeout == nil || *cfg.LayerTimeout != 0 {
+			t.Errorf("LayerTimeout = %v, want 0", cfg.LayerTimeout)
 		}
 	})
 
@@ -200,8 +232,8 @@ func TestLoadFrom_Validation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Timeout != 0 {
-			t.Errorf("Timeout = %d, want 0", cfg.Timeout)
+		if cfg.Timeout == nil || *cfg.Timeout != 0 {
+			t.Errorf("Timeout = %v, want 0", cfg.Timeout)
 		}
 	})
 

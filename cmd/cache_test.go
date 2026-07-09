@@ -70,6 +70,28 @@ func TestCacheClear(t *testing.T) {
 	}
 }
 
+func TestCacheClear_WithVerifiedFiles(t *testing.T) {
+	cfg := config.DefaultConfig()
+	tmpDir := t.TempDir()
+	cacheDir = tmpDir
+	defer func() { cacheDir = "" }()
+
+	os.WriteFile(filepath.Join(tmpDir, "abc.gz"), make([]byte, 100), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "abc.gz.verified"), nil, 0644)
+	os.WriteFile(filepath.Join(tmpDir, "def.gz"), make([]byte, 200), 0644)
+
+	removed, freed := cacheClear(cfg)
+	if removed != 2 {
+		t.Errorf("removed = %d, want 2", removed)
+	}
+	if freed != 300 {
+		t.Errorf("freed = %d, want 300", freed)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "abc.gz.verified")); !os.IsNotExist(err) {
+		t.Error(".verified file should be removed")
+	}
+}
+
 func TestCacheClear_Empty(t *testing.T) {
 	cfg := config.DefaultConfig()
 	tmpDir := t.TempDir()

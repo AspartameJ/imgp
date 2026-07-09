@@ -82,7 +82,10 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 		return false
 	}
 	fi, err := os.Stat(cacheFile)
-	if err != nil || fi.Size() != t.Size {
+	if err != nil {
+		return false
+	}
+	if fi.Size() != t.Size {
 		return false
 	}
 	f, e := os.Open(cacheFile)
@@ -97,6 +100,9 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 	if magic[0] != 0x1f || magic[1] != 0x8b {
 		return false
 	}
+	if _, err := os.Stat(cacheFile + ".verified"); err != nil {
+		return false
+	}
 	if !sendEvent(ctx, ch, PullEvent{
 		Index: t.Index, Digest: t.DigestHex,
 		Bytes: t.Size, Total: t.Size, Status: "cached",
@@ -106,20 +112,22 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 	return true
 }
 
-// backoffWait sleeps with exponential backoff; returns false if context was cancelled.
-func (p *Puller) backoffWait(ctx context.Context, ch chan<- PullEvent, t LayerTask, attempt int) bool {
+// backoffOrSendError sleeps with exponential backoff; returns false if context was cancelled.
+func (p *Puller) backoffOrSendError(ctx context.Context, ch chan<- PullEvent, t LayerTask, attempt int) bool {
 	if err := util.Backoff(ctx, attempt); err != nil {
-		sendEvent(ctx, ch, PullEvent{
+		if !sendEvent(ctx, ch, PullEvent{
 			Index: t.Index, Digest: t.DigestHex,
 			Err: ctx.Err(), Status: "error",
-		})
+		}) {
+			return false
+		}
 		return false
 	}
 	return true
 }
 
 // downloadAttempt performs a single download attempt; returns true on success.
-// On failure, lastErr holds the error and should be checked by the caller.
+// If the download succeeds but closing the cache file fails, returns false with the close error.
 func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t LayerTask, cacheFile string) (ok bool, lastErr error) {
 	var layerCtx context.Context
 	var cancel context.CancelFunc
@@ -140,9 +148,10 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 	if createErr != nil {
 		return false, fmt.Errorf("create cache: %w", createErr)
 	}
+	closeOnFail := true
 	defer func() {
-		if cerr := f.Close(); cerr != nil && lastErr == nil {
-			lastErr = fmt.Errorf("close cache file: %w", cerr)
+		if closeOnFail {
+			f.Close()
 		}
 	}()
 
@@ -177,6 +186,10 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 
 	if written != t.Size {
 		return false, fmt.Errorf("incomplete download: got %d, expected %d", written, t.Size)
+	}
+	closeOnFail = false
+	if err := f.Close(); err != nil {
+		return false, fmt.Errorf("close cache file: %w", err)
 	}
 	return true, nil
 }
@@ -219,7 +232,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			if !util.IsRetryable(lastErr) {
 				break
 			}
-			if !p.backoffWait(ctx, ch, t, attempt) {
+			if !p.backoffOrSendError(ctx, ch, t, attempt) {
 				return
 			}
 			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {

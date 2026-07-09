@@ -2,31 +2,64 @@ package util
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 )
+
+var retryableSubstrings = []string{
+	"unexpected EOF", "connection reset", "connection refused",
+	"TLS handshake", "broken pipe", "dial tcp", "i/o timeout",
+}
+
+func containsRetryable(msg string) bool {
+	for _, s := range retryableSubstrings {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func httpStatusCode(msg string) int {
+	var code int
+	if _, err := fmt.Sscanf(msg, "unexpected status code %d", &code); err == nil {
+		return code
+	}
+	return 0
+}
+
+func isNetError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
 
 // IsRetryable determines whether an error should trigger a retry.
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if isNetError(err) {
 		return true
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "unexpected status code 4") {
+	if code := httpStatusCode(msg); code != 0 {
+		return code >= 500
+	}
+	return containsRetryable(msg)
+}
+
+// IsConnectivityError returns true for errors that indicate a network connectivity
+// problem (as opposed to a server-side error like 5xx). This is useful for
+// deciding whether to suggest using a mirror to the user.
+func IsConnectivityError(err error) bool {
+	if err == nil {
 		return false
 	}
-	retryable := []string{"unexpected EOF", "connection reset", "connection refused",
-		"TLS handshake", "broken pipe"}
-	for _, s := range retryable {
-		if strings.Contains(msg, s) {
-			return true
-		}
+	if isNetError(err) {
+		return true
 	}
-	return strings.Contains(msg, "unexpected status code 5")
+	return containsRetryable(err.Error())
 }
 
 // IsValidArch checks if arch is a known CPU architecture.

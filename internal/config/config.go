@@ -22,8 +22,8 @@ type Config struct {
 	Auths              map[string]AuthConfig `json:"auths,omitempty"`
 	InsecureRegistries []string              `json:"insecure_registries,omitempty"`
 	Parallelism        int                   `json:"parallelism"`
-	LayerTimeout       int                   `json:"layer_timeout,omitempty"`
-	Timeout            int                   `json:"timeout,omitempty"`
+	LayerTimeout       *int                  `json:"layer_timeout,omitempty"`
+	Timeout            *int                  `json:"timeout,omitempty"`
 	Retry              int                   `json:"retry,omitempty"`
 	CacheDir           string                `json:"cache_dir,omitempty"`
 
@@ -58,12 +58,17 @@ func ConfigPath() string {
 
 // LoadFrom reads and parses a config from the given path.
 func LoadFrom(path string) (*Config, error) {
-	cfg := DefaultConfig()
-	cfg.configPath = path
+	def := DefaultConfig()
+	cfg := &Config{configPath: path}
+	cfg.MirrorMap = def.MirrorMap
+	cfg.Parallelism = def.Parallelism
+	cfg.Retry = def.Retry
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			cfg = def
+			cfg.configPath = path
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
@@ -74,16 +79,18 @@ func LoadFrom(path string) (*Config, error) {
 	}
 
 	if cfg.MirrorMap == nil {
-		cfg.MirrorMap = DefaultConfig().MirrorMap
+		cfg.MirrorMap = def.MirrorMap
 	}
 	if cfg.Parallelism < 1 {
 		cfg.Parallelism = DefaultParallelism
 	}
-	if cfg.LayerTimeout < 0 {
-		cfg.LayerTimeout = 0
+	if cfg.LayerTimeout != nil && *cfg.LayerTimeout < 0 {
+		z := 0
+		cfg.LayerTimeout = &z
 	}
-	if cfg.Timeout < 0 {
-		cfg.Timeout = 0
+	if cfg.Timeout != nil && *cfg.Timeout < 0 {
+		z := 0
+		cfg.Timeout = &z
 	}
 	if cfg.Retry < 0 {
 		cfg.Retry = 0
@@ -122,6 +129,15 @@ func (c *Config) Save() error {
 func osDefaultCacheDir() string {
 	if d := os.Getenv("LOCALAPPDATA"); d != "" {
 		return filepath.Join(d, "imgp", "cache")
+	}
+	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
+		return filepath.Join(d, "imgp")
+	}
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, "imgp")
+	}
+	if d, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(d, ".cache", "imgp")
 	}
 	return filepath.Join(os.TempDir(), "imgp-cache")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/random"
@@ -19,6 +21,7 @@ import (
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
 	"gitcode.com/DonaldTom/imgp/internal/registry"
+	"gitcode.com/DonaldTom/imgp/internal/util"
 )
 
 func TestResolveSaveParams_Defaults(t *testing.T) {
@@ -117,7 +120,8 @@ func TestResolveSaveParams_TimeoutFromConfig(t *testing.T) {
 	defer func() { timeoutMin = saveFlag }()
 
 	cfg := config.DefaultConfig()
-	cfg.Timeout = 15
+	t15 := 15
+	cfg.Timeout = &t15
 
 	cmd := &cobra.Command{}
 	p, err := resolveSaveParams(cmd, cfg, "img:tag")
@@ -440,39 +444,46 @@ func TestCmdCacheDir(t *testing.T) {
 	})
 }
 
-func TestIsNetworkError(t *testing.T) {
-	t.Run("timeout error", func(t *testing.T) {
+func TestIsRetryable(t *testing.T) {
+	t.Run("net.Error timeout", func(t *testing.T) {
 		err := &timeoutErr{}
-		if !isNetworkError(err) {
+		if !util.IsRetryable(err) {
 			t.Error("expected true for timeout")
 		}
 	})
 
-	t.Run("dial tcp error", func(t *testing.T) {
-		err := fmt.Errorf("dial tcp 1.2.3.4:80: connectex: connection refused")
-		if !isNetworkError(err) {
-			t.Error("expected true for dial tcp")
+	t.Run("net.OpError dial tcp", func(t *testing.T) {
+		err := &net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connection refused")}
+		if !util.IsRetryable(err) {
+			t.Error("expected true for dial tcp OpError")
 		}
 	})
 
-	t.Run("dial tcp lookup error", func(t *testing.T) {
-		err := fmt.Errorf("dial tcp: lookup nonexistent.example.com: no such host")
-		if !isNetworkError(err) {
-			t.Error("expected true for lookup error")
+	t.Run("net.DNSError lookup failure", func(t *testing.T) {
+		err := &net.DNSError{Err: "no such host", Name: "example.com"}
+		if !util.IsRetryable(err) {
+			t.Error("expected true for DNS lookup error")
 		}
 	})
 
-	t.Run("i/o timeout string", func(t *testing.T) {
-		err := fmt.Errorf("something: i/o timeout")
-		if !isNetworkError(err) {
-			t.Error("expected true for i/o timeout")
+	t.Run("i/o timeout via net.Error", func(t *testing.T) {
+		err := &net.OpError{Op: "read", Net: "tcp", Err: fmt.Errorf("i/o timeout")}
+		if !util.IsRetryable(err) {
+			t.Error("expected true for i/o timeout via OpError")
 		}
 	})
 
 	t.Run("non-network error", func(t *testing.T) {
 		err := fmt.Errorf("random error")
-		if isNetworkError(err) {
+		if util.IsRetryable(err) {
 			t.Error("expected false for random error")
+		}
+	})
+
+	t.Run("HTTP 404 is not retryable", func(t *testing.T) {
+		err := fmt.Errorf("unexpected status code 404 Not Found")
+		if util.IsRetryable(err) {
+			t.Error("expected false for 404")
 		}
 	})
 }
@@ -488,14 +499,14 @@ func TestFetchManifest_Display(t *testing.T) {
 	srv, _, _, refStr := mockRegistryServer(t, 256, 1)
 	defer srv.Close()
 
-	oldStdout := os.Stdout
+	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
-	os.Stdout = w
+	os.Stderr = w
 
 	cfg := config.DefaultConfig()
 	client := registry.NewClient(cfg).WithInsecure(true)
 	cfg.MirrorMap = nil
-	mr, err := fetchManifest(context.Background(), cfg, client, refStr, "linux/amd64", "", false)
+	mr, err := fetchManifest(context.Background(), client, refStr, "linux/amd64", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,12 +515,12 @@ func TestFetchManifest_Display(t *testing.T) {
 	}
 
 	w.Close()
-	os.Stdout = oldStdout
+	os.Stderr = oldStderr
 	out, _ := io.ReadAll(r)
 	r.Close()
 
 	if !strings.Contains(string(out), "Pulling") {
-		t.Errorf("expected 'Pulling' in output, got: %s", string(out))
+		t.Errorf("expected 'Pulling' in stderr, got: %s", string(out))
 	}
 }
 
@@ -525,7 +536,7 @@ func TestFetchManifest_NonNetworkError(t *testing.T) {
 	cfg := config.DefaultConfig()
 	client := registry.NewClient(cfg).WithInsecure(true)
 	cfg.MirrorMap = nil
-	_, err := fetchManifest(context.Background(), cfg, client, refStr, "linux/amd64", "", true)
+	_, err := fetchManifest(context.Background(), client, refStr, "linux/amd64", "", true)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -535,11 +546,7 @@ func TestFetchManifest_NonNetworkError(t *testing.T) {
 }
 
 func TestPullLayers_ErrorReport(t *testing.T) {
-	baseDir, err := os.MkdirTemp("", "imgp-pull-err-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { runtime.GC(); os.RemoveAll(baseDir) }()
+	baseDir := t.TempDir()
 
 	srv, _, _, refStr := mockRegistryServer(t, 256, 1)
 	defer srv.Close()
@@ -570,6 +577,66 @@ func TestPullLayers_ErrorReport(t *testing.T) {
 	}
 }
 
+func TestExportImage_Success(t *testing.T) {
+	dir, err := os.MkdirTemp("", "imgp-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { runtime.GC(); os.RemoveAll(dir) }()
+
+	img, err := random.Image(256, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origRef, err := name.ParseReference("testimg:export")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(dir, "out.tar")
+
+	layers, _ := img.Layers()
+	for _, l := range layers {
+		d, _ := l.Digest()
+		rc, _ := l.Compressed()
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		os.WriteFile(filepath.Join(dir, d.Hex+".gz"), data, 0644)
+		os.WriteFile(filepath.Join(dir, d.Hex+".gz.verified"), nil, 0644)
+	}
+
+	oldStderr := os.Stderr
+	oldStdout := os.Stdout
+	rStderr, wStderr, _ := os.Pipe()
+	rStdout, wStdout, _ := os.Pipe()
+	os.Stderr = wStderr
+	os.Stdout = wStdout
+
+	err = exportImage(context.Background(), dir, saveParams{
+		outputPath:     out,
+		quiet:          false,
+		gzip:           false,
+		targetPlatform: "linux/amd64",
+	}, img, origRef, "testimg:export", time.Now())
+
+	os.Stderr = oldStderr
+	os.Stdout = oldStdout
+	wStderr.Close()
+	wStdout.Close()
+	stderrOut, _ := io.ReadAll(rStderr)
+	stdoutOut, _ := io.ReadAll(rStdout)
+
+	if err != nil {
+		t.Fatalf("exportImage error: %v", err)
+	}
+	if !strings.Contains(string(stderrOut), "Exporting to") {
+		t.Errorf("stderr should contain 'Exporting to', got: %s", string(stderrOut))
+	}
+	if !strings.Contains(string(stdoutOut), "Done:") {
+		t.Errorf("stdout should contain 'Done:', got: %s", string(stdoutOut))
+	}
+}
+
 func TestExportImage_Error(t *testing.T) {
 	img, err := random.Image(256, 1)
 	if err != nil {
@@ -586,30 +653,16 @@ func TestExportImage_Error(t *testing.T) {
 		quiet:          true,
 		gzip:           false,
 		targetPlatform: "linux/amd64",
-	}, img, origRef, "testimg:exportbad")
+	}, img, origRef, "testimg:exportbad", time.Now())
 	if err == nil {
 		t.Fatal("expected error for invalid output path")
 	}
 }
 
 func TestRunSaveOne_FetchError(t *testing.T) {
-	baseDir, err := os.MkdirTemp("", "imgp-test-err-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { runtime.GC(); os.RemoveAll(baseDir) }()
+	baseDir := t.TempDir()
 	outPath := filepath.Join(baseDir, "out.tar")
-
-	saveOutput := output
-	saveQuiet := quiet
-	saveCacheDir := cacheDir
-	saveParallelism := parallelism
-	defer func() {
-		output = saveOutput
-		quiet = saveQuiet
-		cacheDir = saveCacheDir
-		parallelism = saveParallelism
-	}()
+	defer saveGlobals()()
 
 	output = outPath
 	quiet = true
@@ -621,34 +674,18 @@ func TestRunSaveOne_FetchError(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
-	err = runSaveOne(cmd, cfg, "nonexistent.registry.invalid/img:nonexistent", "")
+	err := runSaveOne(cmd, cfg, "nonexistent.registry.invalid/img:nonexistent", "")
 	if err == nil {
 		t.Fatal("expected error for nonexistent registry")
 	}
 }
 
 func TestRunSaveOne_Timeout(t *testing.T) {
-	saveTimeout := timeoutMin
 	timeoutMin = 5
-	defer func() { timeoutMin = saveTimeout }()
+	defer saveGlobals()()
 
-	baseDir, err := os.MkdirTemp("", "imgp-test-timeout-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { runtime.GC(); os.RemoveAll(baseDir) }()
+	baseDir := t.TempDir()
 	outPath := filepath.Join(baseDir, "out.tar")
-
-	saveOutput := output
-	saveQuiet := quiet
-	saveCacheDir := cacheDir
-	saveParallelism := parallelism
-	defer func() {
-		output = saveOutput
-		quiet = saveQuiet
-		cacheDir = saveCacheDir
-		parallelism = saveParallelism
-	}()
 
 	output = outPath
 	quiet = true
@@ -660,7 +697,7 @@ func TestRunSaveOne_Timeout(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
-	err = runSaveOne(cmd, cfg, "nonexistent.registry.invalid/img:nonexistent", "")
+	err := runSaveOne(cmd, cfg, "nonexistent.registry.invalid/img:nonexistent", "")
 	if err == nil {
 		t.Fatal("expected error for nonexistent registry with timeout")
 	}

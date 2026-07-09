@@ -122,7 +122,7 @@ imgp save nginx:latest redis:latest alpine:latest
 | `-p, --platform` | string | `linux/amd64` | 目标平台。格式 `os/arch` 或 `os/arch/variant`，如 `linux/arm64`、`linux/arm64/v8`、`windows/amd64` |
 | `--username` | string | 空 | Registry 登录用户名 |
 | `--password` | string | 空 | Registry 登录密码。优先级高于 `--password-env`。注意：密码会在进程列表中可见，建议用 `--password-env` |
-| `--password-env` | string | `IMG_REGISTRY_PASSWORD` | 存放密码的环境变量名。当 `--password` 未设置时从此变量读取 |
+| `--password-env` | string | 空 | 存放密码的环境变量名。当 `--password` 未设置时从此变量读取。示例：`IMG_REGISTRY_PASSWORD` |
 | `--insecure` | bool | `false` | 允许 HTTP 连接（跳过 TLS 验证），用于内网私有仓库 |
 | `-P, --parallel` | int | 配置文件中的值，默认 `4` | 同时下载的 layer 数量。网络好可调大（如 8），反之调小（如 2） |
 | `--no-cache` | bool | `false` | 忽略本地缓存，强制重新下载所有 layer |

@@ -61,8 +61,8 @@ func TestSetConfigKey_LayerTimeout(t *testing.T) {
 	if err := setConfigKey(cfg, "layer-timeout", "15"); err != nil {
 		t.Fatalf("setConfigKey error = %v", err)
 	}
-	if cfg.LayerTimeout != 15 {
-		t.Errorf("LayerTimeout = %d, want 15", cfg.LayerTimeout)
+	if cfg.LayerTimeout == nil || *cfg.LayerTimeout != 15 {
+		t.Errorf("LayerTimeout = %v, want 15", cfg.LayerTimeout)
 	}
 }
 
@@ -71,8 +71,8 @@ func TestSetConfigKey_Timeout(t *testing.T) {
 	if err := setConfigKey(cfg, "timeout", "60"); err != nil {
 		t.Fatalf("setConfigKey error = %v", err)
 	}
-	if cfg.Timeout != 60 {
-		t.Errorf("Timeout = %d, want 60", cfg.Timeout)
+	if cfg.Timeout == nil || *cfg.Timeout != 60 {
+		t.Errorf("Timeout = %v, want 60", cfg.Timeout)
 	}
 }
 

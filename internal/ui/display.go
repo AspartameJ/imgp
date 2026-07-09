@@ -11,6 +11,8 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/puller"
 )
 
+var stderr = os.Stderr
+
 type LayerState struct {
 	Index   int
 	Digest  string
@@ -30,7 +32,7 @@ type ProgressDisplay struct {
 }
 
 func NewProgressDisplay(quiet bool) *ProgressDisplay {
-	return &ProgressDisplay{quiet: quiet, useANSI: IsTerminal()}
+	return &ProgressDisplay{quiet: quiet, useANSI: IsStderrTerminal()}
 }
 
 func (p *ProgressDisplay) GetLayers() []LayerState {
@@ -169,37 +171,30 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 	s := p.calcProgress()
 
 	var buf strings.Builder
-	if p.useANSI {
-		buf.WriteString(fmt.Sprintf("\033[2K\r  layers: [%d/%d] %.1f%% | %s / %s\n",
-			s.doneLayers, totalLayers, s.percent,
-			FormatBytes(s.currentBytes), FormatBytes(p.Total)))
-	} else {
-		buf.WriteString(fmt.Sprintf("\r  layers: [%d/%d] %.1f%% | %s / %s",
-			s.doneLayers, totalLayers, s.percent,
-			FormatBytes(s.currentBytes), FormatBytes(p.Total)))
-	}
+	buf.WriteString(fmt.Sprintf("  layers: [%d/%d] %.1f%% | %s / %s\n",
+		s.doneLayers, totalLayers, s.percent,
+		FormatBytes(s.currentBytes), FormatBytes(p.Total)))
 
-	if p.useANSI {
-		for _, ls := range p.Layers {
-			bar := RenderBar(ls.Current, ls.Total, 30)
-			switch ls.Status {
-			case "cached":
-				fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", Green("✓"), Shorten(ls.Digest, 12), Green("(cached)"))
-			case "done":
-				fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", Green("✓"), Shorten(ls.Digest, 12), bar)
-			case "downloading":
-				fmt.Fprintf(&buf, "\033[2K\r    %s %s %s %s/%s\n",
-					Cyan("◌"), Shorten(ls.Digest, 12), bar,
-					FormatBytes(ls.Current), FormatBytes(ls.Total))
-			case "error":
-				msg := "download failed"
-				if ls.ErrMsg != "" {
-					msg = ls.ErrMsg
-				}
-				fmt.Fprintf(&buf, "\033[2K\r    %s %s %s\n", Red("✗"), Shorten(ls.Digest, 12), Red(msg))
-			default:
-				fmt.Fprintf(&buf, "\033[2K\r    %s %s waiting...\n", Yellow("·"), Shorten(ls.Digest, 12))
+	for _, ls := range p.Layers {
+		bar := RenderBar(ls.Current, ls.Total, 30)
+		digest := Shorten(ls.Digest, 12)
+		switch ls.Status {
+		case "cached":
+			fmt.Fprintf(&buf, "    %s %s (cached)\n", "\u2713", digest)
+		case "done":
+			fmt.Fprintf(&buf, "    %s %s %s\n", "\u2713", digest, bar)
+		case "downloading":
+			fmt.Fprintf(&buf, "    %s %s %s %s/%s\n",
+				"\u25CB", digest, bar,
+				FormatBytes(ls.Current), FormatBytes(ls.Total))
+		case "error":
+			msg := "download failed"
+			if ls.ErrMsg != "" {
+				msg = ls.ErrMsg
 			}
+			fmt.Fprintf(&buf, "    %s %s %s\n", "\u2717", digest, msg)
+		default:
+			fmt.Fprintf(&buf, "    %s %s waiting...\n", "\u00B7", digest)
 		}
 	}
 	return buf.String(), s.allDone
@@ -230,13 +225,13 @@ func (p *ProgressDisplay) RunPullUI(ctx context.Context, eventCh <-chan puller.P
 			return quit
 		case <-ticker.C:
 			if prevLayers > 0 && p.useANSI {
-				fmt.Printf("\033[%dA", prevLayers)
+				fmt.Fprintf(stderr, "\033[%dA", prevLayers)
 			}
 			frame, allDone := p.renderFrame(totalLayers)
 			if p.useANSI {
 				prevLayers = 1 + totalLayers
 			}
-			fmt.Print(frame)
+			fmt.Fprint(stderr, frame)
 
 			if allDone {
 				<-readerDone
@@ -252,10 +247,11 @@ func Shorten(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n]
+	return string(runes[:n])
 }
 
 func FormatBytes(b int64) string {
@@ -308,16 +304,21 @@ func RenderBar(current, total int64, width int) string {
 // Green wraps s in ANSI green escape codes.
 func Green(s string) string { return "\033[32m" + s + "\033[0m" }
 
-// Red wraps s in ANSI red escape codes.
-func Red(s string) string { return "\033[31m" + s + "\033[0m" }
-
 // Cyan wraps s in ANSI cyan escape codes.
 func Cyan(s string) string { return "\033[36m" + s + "\033[0m" }
 
-// Yellow wraps s in ANSI yellow escape codes.
-func Yellow(s string) string { return "\033[33m" + s + "\033[0m" }
-
 func IsTerminal() bool {
-	fi, _ := os.Stdout.Stat() // safe: returns nil on error, nil check below handles it
+	return isTerminalFor(os.Stdout)
+}
+
+func IsStderrTerminal() bool {
+	return isTerminalFor(os.Stderr)
+}
+
+func isTerminalFor(f *os.File) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	fi, _ := f.Stat()
 	return fi != nil && (fi.Mode()&os.ModeCharDevice) != 0
 }

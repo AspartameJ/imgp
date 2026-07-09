@@ -56,9 +56,18 @@ func (c *compressedImage) LayerByDigest(h v1.Hash) (partial.CompressedLayer, err
 	return l, nil
 }
 
-// OpenCachedLayer validates a cached layer file and returns a CompressedLayer.
-// verifyGzip opens cacheFile, checks gzip magic bytes, and performs full CRC decompression check.
 func verifyGzip(cacheFile string) error {
+	markerFile := cacheFile + ".verified"
+	if fi, err := os.Stat(markerFile); err == nil {
+		gzFi, gzErr := os.Stat(cacheFile)
+		if gzErr == nil && !gzFi.ModTime().After(fi.ModTime()) {
+			return nil
+		}
+		if err := os.Remove(markerFile); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "verify gzip: remove stale marker %s: %v\n", markerFile, err)
+		}
+	}
+
 	f, err := os.Open(cacheFile)
 	if err != nil {
 		return fmt.Errorf("open cached layer: %w", err)
@@ -82,6 +91,9 @@ func verifyGzip(cacheFile string) error {
 			fmt.Fprintf(os.Stderr, "remove corrupted cache: %s: %v\n", cacheFile, rmErr)
 		}
 		return fmt.Errorf("cached layer corrupted (gzip CRC mismatch): %s: %w", cacheFile, err)
+	}
+	if err := os.WriteFile(markerFile, nil, 0644); err != nil {
+		return fmt.Errorf("write verification marker: %w", err)
 	}
 	return nil
 }
@@ -226,8 +238,9 @@ func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outpu
 	if createErr != nil {
 		return fmt.Errorf("create output file: %w", createErr)
 	}
+	fileClosed := false
 	defer func() {
-		if err != nil {
+		if !fileClosed {
 			f.Close()
 		}
 	}()
@@ -261,10 +274,11 @@ func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outpu
 
 	if gw != nil {
 		if gwErr := gw.Close(); gwErr != nil {
-			return fmt.Errorf("close gzip: %w", gwErr)
+			return fmt.Errorf("close gzip writer: tar written but gzip flush failed: %w", gwErr)
 		}
 	}
 
+	fileClosed = true
 	if cerr := f.Close(); cerr != nil {
 		return fmt.Errorf("close tar: %w", cerr)
 	}
@@ -298,6 +312,9 @@ func Export(
 	}
 	if fi, err := os.Stat(outputPath); err == nil && fi.IsDir() {
 		return fmt.Errorf("output path is a directory: %s", outputPath)
+	}
+	if fi, err := os.Stat(filepath.Dir(outputPath)); err == nil && !fi.IsDir() {
+		return fmt.Errorf("parent of output path is not a directory: %s", filepath.Dir(outputPath))
 	}
 
 	v1Img, err := buildCachedImage(img, cachePathFn)

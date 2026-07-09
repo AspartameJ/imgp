@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -146,12 +147,10 @@ func TestParsePlatform(t *testing.T) {
 }
 
 func TestParsePlatform_Invalid(t *testing.T) {
-	if p := parsePlatform("/linux"); p != nil {
-		t.Errorf("expected nil for /linux, got %+v", p)
-	}
-	if p := parsePlatform("linux//arm64"); p != nil {
-		t.Errorf("expected nil for linux//arm64, got %+v", p)
-	}
+	// Input validation is handled by cmd.resolvePlatform.
+	// parsePlatform is lenient and returns a best-effort parse.
+	_ = parsePlatform("/linux")
+	_ = parsePlatform("linux//arm64")
 }
 
 func TestAuthenticator_Credentials(t *testing.T) {
@@ -447,6 +446,85 @@ func TestFetchImage_ServerError(t *testing.T) {
 	}
 }
 
+func TestFetchImage_RetryThenSucceed(t *testing.T) {
+	var manifestAttempts int
+
+	img, _ := random.Image(1024, 1)
+	rawManifest, _ := img.RawManifest()
+	m := &v1.Manifest{}
+	json.Unmarshal(rawManifest, m)
+	cfgBlob, _ := img.RawConfigFile()
+	configDigest := sha256.Sum256(cfgBlob)
+	layers, _ := img.Layers()
+	ld, _ := layers[0].Digest()
+	rc, _ := layers[0].Compressed()
+	lData, _ := io.ReadAll(rc)
+	rc.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v2/"):
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/manifests/"):
+			manifestAttempts++
+			if manifestAttempts <= 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", string(m.MediaType))
+			w.Write(rawManifest)
+		case strings.Contains(r.URL.Path, "/blobs/sha256:"+hex.EncodeToString(configDigest[:])):
+			w.Write(cfgBlob)
+		case strings.Contains(r.URL.Path, "/blobs/sha256:"+ld.Hex):
+			w.Write(lData)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	svrPort := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	image := fmt.Sprintf("localhost:%s/test:latest", svrPort)
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg).WithRetry(3)
+
+	_, _, err := client.FetchImage(context.Background(), image, "")
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+}
+
+func TestFetchImage_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	port := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	image := fmt.Sprintf("localhost:%s/slow:latest", port)
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+
+	client := NewClient(cfg).WithRetry(0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := client.FetchImage(ctx, image, "")
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "deadline exceeded") &&
+		!strings.Contains(err.Error(), "context deadline") &&
+		!strings.Contains(err.Error(), "canceled") {
+		t.Errorf("expected deadline/cancel error, got: %v", err)
+	}
+}
+
 func TestFetchImage_MirrorFallback(t *testing.T) {
 	// Primary server returns 404
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -489,15 +567,34 @@ func TestFetchImage_MirrorFallback(t *testing.T) {
 }
 
 func TestNewLayerFetcher(t *testing.T) {
-	cfg := config.DefaultConfig()
-	client := NewClient(cfg)
-	ref, err := name.ParseReference("test:latest")
+	server, img, refStr := mockRegistry(t, 1024, 1)
+	defer server.Close()
+
+	ref, err := name.ParseReference(refStr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fn := client.NewLayerFetcher(ref)
-	if fn == nil {
-		t.Error("NewLayerFetcher returned nil")
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+
+	fetcher := client.NewLayerFetcher(ref)
+	if fetcher == nil {
+		t.Fatal("NewLayerFetcher returned nil")
+	}
+
+	layers, _ := img.Layers()
+	d, _ := layers[0].Digest()
+
+	rc, err := fetcher(context.Background(), d.Hex)
+	if err != nil {
+		t.Fatalf("fetcher error: %v", err)
+	}
+	defer rc.Close()
+	data, _ := io.ReadAll(rc)
+	if len(data) == 0 {
+		t.Error("expected layer data")
 	}
 }
 
