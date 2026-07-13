@@ -79,5 +79,13 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return err
 	}
 
-	return exportImage(ctx, cd, p, mr.img, mr.origRef, image, start)
+	if err := exportImage(ctx, cd, p, mr.img, mr.origRef, image, start); err != nil {
+		return err
+	}
+
+	if !p.quiet {
+		_, _, size := cacheInfo(cfg)
+		fmt.Fprintf(os.Stderr, "\nCache: %s\n", ui.FormatBytes(size))
+	}
+	return nil
 }
