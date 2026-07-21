@@ -2,40 +2,14 @@
 
 # imgp
 
-**imgp** 是一个 Windows Docker 镜像拉取导出工具。纯 Go 单文件，无需 Docker 守护进程，下载即用。
+Windows Docker 镜像拉取导出工具。纯 Go 单文件，无需 Docker 守护进程。
 
 ```
 imgp save hello-world:latest -o hello-world.tar
-docker load -i hello-world.tar    # 在有 Docker 的机器上导入
+docker load -i hello-world.tar
 ```
 
-> 源码跨平台（Linux/macOS 可编译），但仅提供 Windows/amd64 二进制和 CI 测试。
-
----
-
-## 安装
-
-### 下载二进制
-
-从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp-windows-amd64.exe`，放入 `PATH` 目录即可。
-
-### Go 安装
-
-```bash
-go install gitcode.com/DonaldTom/imgp@latest
-```
-
-国内用户先设 Go proxy：
-
-```bash
-go env -w GOPROXY=https://goproxy.cn,direct
-```
-
-### 验证
-
-```bash
-imgp -v
-```
+从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp-windows-amd64.exe` 放入 `PATH` 即可，或 `go install gitcode.com/DonaldTom/imgp@latest`。
 
 ---
 
@@ -52,95 +26,152 @@ imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
 export IMG_REGISTRY_PASSWORD=your_password
 imgp save private.registry.com/myapp:latest --username user
 
-# 多个镜像（自动命名，不可用 -o）
+# 多个镜像（自动命名）
 imgp save nginx:latest redis:latest alpine:latest
 
-# 启用 gzip 压缩
+# gzip 压缩
 imgp save nginx:latest -z -o nginx.tar.gz
+```
+
+---
+
+## 架构
+
+### 1. imgp save 主流程
+
+```mermaid
+flowchart TD
+    A[imgp save nginx:latest] --> B[解析镜像名]
+    B --> C{镜像加速?}
+    C -- 是 --> D[尝试加速地址]
+    C -- 否 --> E[原始 registry]
+    D --> F{成功?}
+    F -- 是 --> G[获取 manifest]
+    F -- 否 --> E
+    E --> G
+    G --> H[匹配 --platform]
+    H --> I[遍历 layers]
+    I --> J{缓存命中?}
+    J -- 是 --> K[使用缓存 layer]
+    J -- 否 --> L[下载 layer → 缓存]
+    L --> M[验证 checksum]
+    K --> N{还有下一层?}
+    M --> N
+    N -- 是 --> I
+    N -- 否 --> O[导出 tar]
+    O --> P{gzip?}
+    P -- 是 --> Q[gzip 压缩]
+    P -- 否 --> R[完成]
+    Q --> R
+```
+
+### 2. 缓存判断逻辑
+
+```mermaid
+flowchart TD
+    A[开始下载 layer] --> B{--no-cache?}
+    B -- 是 --> C[跳过缓存检查]
+    B -- 否 --> D[检查 .verified 标记]
+    D --> E{标记存在?}
+    E -- 是 --> F[使用缓存 ✓]
+    E -- 否 --> G[检查 .gz 缓存文件]
+    G --> H{缓存存在且有效?}
+    H -- 是 --> I[验证 diff_id 匹配]
+    H -- 否 --> C
+    I --> J{匹配?}
+    J -- 是 --> F
+    J -- 否 --> C
+    C --> K[发起 HTTP 请求下载]
+    K --> L{可重试错误?}
+    L -- 是 --> M[等待后重试]
+    M --> K
+    L -- 否 --> N{成功?}
+    N -- 否 --> O[返回错误]
+    N -- 是 --> P[流式写入 .gz.tmp]
+    P --> Q[重命名为 .gz]
+    Q --> R[写入 .verified 标记]
+    R --> F
+```
+
+### 3. cache 子命令
+
+```mermaid
+flowchart TD
+    A[imgp cache info / clear] --> B{子命令?}
+    B -- info --> C[扫描缓存目录]
+    C --> D[统计 layer 数 / 总大小]
+    D --> E[输出信息]
+    B -- clear --> F[扫描缓存目录]
+    F --> G[删除 .gz 和 .verified]
+    G --> H[输出清理结果]
+```
+
+### 4. config 子命令
+
+```mermaid
+flowchart TD
+    A[imgp config list / set] --> B{子命令?}
+    B -- list --> C[读取 imgp.json]
+    C --> D[格式化输出]
+    B -- set --> E[解析 key=value]
+    E --> F{key 合法?}
+    F -- 否 --> G[报错并提示可用 key]
+    F -- 是 --> H[更新内存配置]
+    H --> I[写回 imgp.json]
+    I --> J[输出确认]
 ```
 
 ---
 
 ## 命令参考
 
-### `imgp save [镜像名...]` — 拉取并导出
+### `imgp save [镜像名...]`
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `-o, --output` | string | `镜像名_平台.tar` | 输出路径。多镜像时不可用 |
-| `-p, --platform` | string | `linux/amd64` | 目标平台，如 `linux/arm64`、`windows/amd64` |
+| `-p, --platform` | string | `linux/amd64` | 目标平台 |
 | `--username` | string | — | Registry 登录用户名 |
-| `--password` | string | — | 密码（进程列表可见，建议用 `--password-env`） |
+| `--password` | string | — | 密码（建议用 `--password-env`） |
 | `--password-env` | string | — | 存放密码的环境变量名 |
-| `--insecure` | bool | `false` | 跳过 TLS 验证（内网 HTTP registry） |
+| `--insecure` | bool | `false` | 跳过 TLS 验证 |
 | `-P, --parallel` | int | `4` | 并行下载数 |
-| `--no-cache` | bool | `false` | 忽略缓存，强制重下 |
+| `--no-cache` | bool | `false` | 忽略缓存 |
 | `-z, --gzip` | bool | `false` | gzip 压缩输出 |
-| `--cache-dir` | string | OS 默认 | 临时缓存目录 |
+| `--cache-dir` | string | OS 默认 | 缓存目录 |
 | `--timeout` | int | `0`(不限) | 整体超时（分钟） |
 | `--layer-timeout` | int | `30` | 每层超时（分钟） |
-| `--retry` | int | `2` | 重试次数（`0` = 不重试，上限 `30`） |
-| `-q, --quiet` | bool | `false` | 静默模式，只输出路径 |
+| `--retry` | int | `2` | 重试次数（`0`=不重试） |
+| `-q, --quiet` | bool | `false` | 只输出路径 |
 
-### `imgp cache` — 缓存管理
-
-```bash
-imgp cache info                # 查看缓存
-imgp cache clear               # 清空缓存
-imgp cache info --cache-dir D:\my-cache    # 指定目录
-```
-
-| 操作系统 | 默认缓存路径 |
-|---|---|
-| Windows | `%LOCALAPPDATA%\imgp\cache` |
-| Linux | `$XDG_CACHE_HOME/imgp` 或 `~/.cache/imgp` |
-| macOS | `~/Library/Caches/imgp` |
-
-> 优先级：`--cache-dir` CLI > 配置文件 `cache_dir` > OS 默认路径
-
-### `imgp config` — 配置管理
+### 缓存管理
 
 ```bash
-imgp config list                                          # 查看配置
-imgp config set mirror-map "docker.io=my-mirror.com"      # 设置镜像映射
-imgp config set parallelism 8                             # 并行数
-imgp config set retry 3                                   # 重试次数
-imgp config set cache-dir "D:\image-cache"                # 缓存目录
-imgp config set insecure-registries "192.168.1.100:5000"  # HTTP registry
-imgp config set layer-timeout 60                          # 每层超时
-imgp config set timeout 120                               # 整体超时
+imgp cache info            # 查看缓存
+imgp cache clear           # 清空缓存
 ```
 
-配置文件 `imgp.json` 保存在二进制同目录，完整结构：
+默认路径：Windows `%LOCALAPPDATA%\imgp\cache`，Linux `~/.cache/imgp`，macOS `~/Library/Caches/imgp`。
+
+### 配置管理
+
+`imgp config set <key> <value>`，配置文件 `imgp.json` 在二进制同目录：
 
 ```json
 {
-  "mirror_map": {
-    "docker.io": ["docker.m.daocloud.io"],
-    "gcr.io": ["gcr.mirrors.daocloud.io"]
-  },
-  "auths": {
-    "registry.example.com": {
-      "username": "your-username",
-      "password_env": "IMG_REGISTRY_PASSWORD"
-    }
-  },
-  "insecure_registries": ["192.168.1.100:5000"],
-  "parallelism": 4,
-  "layer_timeout": 30,
-  "timeout": 0,
-  "retry": 2,
-  "cache_dir": ""
+  "mirror_map": {"docker.io": ["docker.m.daocloud.io"]},
+  "auths": {"registry.example.com": {"username": "user", "password_env": "IMG_REGISTRY_PASSWORD"}},
+  "parallelism": 4, "retry": 2, "layer_timeout": 30, "timeout": 0, "cache_dir": ""
 }
 ```
 
-> `password` 字段不会持久化保存。使用 `password_env` 引用环境变量。
+可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。
 
 ---
 
-## 镜像加速（mirror_map）
+## 镜像加速
 
-imgp 内置国内加速镜像，拉取时自动使用：
+内置国内加速镜像，拉取时自动尝试，失败回退原始地址：
 
 | 原始 Registry | 加速地址 | 提供方 |
 |---|---|---|
@@ -149,114 +180,29 @@ imgp 内置国内加速镜像，拉取时自动使用：
 | `registry.k8s.io` | `m.daocloud.io/registry.k8s.io` | DaoCloud |
 | `quay.io` | `quay.nju.edu.cn` | 南京大学 |
 
-工作原理：拉取 `docker.io/library/nginx:latest` → 先尝试镜像地址（失败则回退原始地址）。
+自定义：`imgp config set mirror-map "docker.io=my-mirror.com"`（`|` 分隔多个，按顺序尝试）。
 
-```bash
-# 自定义镜像
-imgp config set mirror-map "docker.io=my-mirror.com"
-
-# 多个镜像（用 | 分隔，按顺序尝试）
-imgp config set mirror-map "docker.io=mirror1.example.com|mirror2.example.com"
-```
-
----
-
-## 效果展示
-
-```text
-$ imgp save hello-world:latest -o hello-world.tar
-
-Pulling hello-world:latest (linux/amd64)
-Image manifest fetched, downloading layers...
-  layers: [1/1] 100% | 2.4 KB / 2.4 KB
-    ✓ sha256:4f55086f  100%
-  exporting: 100% | 6.5 KB / 6.5 KB
-Done: hello-world:latest saved to hello-world.tar
-```
-
-多 layer 并行：
-
-```text
-  layers: [2/3] 87.4% | 10.3 MB / 11.8 MB
-    ✓ sha256:9f1abecd  100%
-    ✓ sha256:c2caafd5  100%
-    ◌ sha256:b7e1cbd2  86% 9.2 MB / 10.7 MB
-```
-
-- `✓` = 下载完成 | `◌` = 正在下载 | `·` = 等待中
-
----
-
-## 工作原理
-
-```text
-输入: imgp save quay.io/prometheus/node-exporter:v1.11.1 -o out.tar
-
-1. 解析镜像名 → registry / 仓库 / 标签
-2. 应用镜像加速 → 查 mirror_map，先走镜像，失败回退
-3. 获取 manifest → 匹配目标平台
-4. 并行下载 layer → 默认 4 个并发，实时进度
-5. 导出 tar → 标准 Docker tar 格式
-
-整个过程不需要 Docker 守护进程
-```
+> 镜像地址不加 `https://`；digest 引用暂不支持加速。
 
 ---
 
 ## 常见问题
 
-### 和 `docker pull` + `docker save` 有什么区别？
+### 和 docker pull + docker save 有什么区别？
 
 `docker pull` 需要 Docker 守护进程（Windows 上需 WSL2/Hyper-V）。imgp 是单文件二进制，零依赖。
 
 ### 中断了怎么办？
 
-已下载的 layer 自动缓存，重跑即续传。`--no-cache` 强制重下。
+已下载的 layer 自动缓存，重跑即续传。`--no-cache` 强制重下。404/401/403 等错误不会重试。
 
-```bash
-# 自动重试（默认 2 次）
-imgp save hello-world:latest --retry 5
+### 支持哪些平台？
 
-# 超时控制
-imgp save large-image:latest --layer-timeout 60 --timeout 120
-```
-
-404/401/403 等错误不会重试。
-
-### 支持哪些 `--platform` 值？
-
-格式 `os/arch` 或 `os/arch/variant`：
-
-| 平台 | 值 |
-|---|---|
-| Linux x86-64 | `linux/amd64`（默认） |
-| Linux ARM64 | `linux/arm64` |
-| Linux ARMv8 | `linux/arm64/v8` |
-| Windows x86-64 | `windows/amd64` |
-| Windows ARM64 | `windows/arm64` |
-| macOS Intel | `darwin/amd64` |
-| macOS Apple Silicon | `darwin/arm64` |
-
-### 为什么拉 `windows/amd64` 失败？
-
-大多数官方镜像只有 Linux 版。需拉取专门标注了 Windows 支持的镜像。
+格式 `os/arch`：`linux/amd64`（默认）、`linux/arm64`、`linux/arm64/v8`、`windows/amd64`、`windows/arm64`、`darwin/amd64`、`darwin/arm64`。
 
 ### Docker Hub 访问不了？
 
-默认已配国内加速。自定义镜像站：
-
-```bash
-imgp config set mirror-map "docker.io=你的镜像地址"
-```
-
----
-
-## 注意事项
-
-- **镜像地址**：不加 `https://`，直接写域名
-- **多镜像**：用 `|` 分隔，`"docker.io=mirror1|mirror2"`
-- **digest 引用**：`image@sha256:...` 暂不支持镜像加速
-- **配置修改**：`imgp config set` 即时生效，无需重启
+默认已配国内加速（见上表）。自定义镜像站：`imgp config set mirror-map "docker.io=你的镜像地址"`。
 
 ---
 
