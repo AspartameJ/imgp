@@ -171,20 +171,20 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 	s := p.calcProgress()
 
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("  layers: [%d/%d] %.1f%% | %s / %s\n",
+	fmt.Fprintf(&buf, "\033[2K  layers: [%d/%d] %.1f%% | %s / %s\n",
 		s.doneLayers, totalLayers, s.percent,
-		FormatBytes(s.currentBytes), FormatBytes(p.Total)))
+		FormatBytes(s.currentBytes), FormatBytes(p.Total))
 
 	for _, ls := range p.Layers {
 		bar := RenderBar(ls.Current, ls.Total, 30)
 		digest := Shorten(ls.Digest, 12)
 		switch ls.Status {
 		case "cached":
-			fmt.Fprintf(&buf, "    %s %s (cached)\n", "\u2713", digest)
+			fmt.Fprintf(&buf, "\033[2K    %s %s (cached)\n", "\u2713", digest)
 		case "done":
-			fmt.Fprintf(&buf, "    %s %s %s\n", "\u2713", digest, bar)
+			fmt.Fprintf(&buf, "\033[2K    %s %s %s\n", "\u2713", digest, bar)
 		case "downloading":
-			fmt.Fprintf(&buf, "    %s %s %s %s/%s\n",
+			fmt.Fprintf(&buf, "\033[2K    %s %s %s %s/%s\n",
 				"\u25CB", digest, bar,
 				FormatBytes(ls.Current), FormatBytes(ls.Total))
 		case "error":
@@ -192,9 +192,9 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 			if ls.ErrMsg != "" {
 				msg = ls.ErrMsg
 			}
-			fmt.Fprintf(&buf, "    %s %s %s\n", "\u2717", digest, msg)
+			fmt.Fprintf(&buf, "\033[2K    %s %s %s\n", "\u2717", digest, msg)
 		default:
-			fmt.Fprintf(&buf, "    %s %s waiting...\n", "\u00B7", digest)
+			fmt.Fprintf(&buf, "\033[2K    %s %s waiting...\n", "\u00B7", digest)
 		}
 	}
 	return buf.String(), s.allDone

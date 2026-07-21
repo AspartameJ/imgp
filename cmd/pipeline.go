@@ -131,7 +131,7 @@ func exportImage(ctx context.Context, cd string, p saveParams, img v1.Image, ori
 	}
 
 	if !p.quiet {
-		fmt.Fprintf(os.Stderr, "\r  exporting: 0%%")
+		fmt.Fprintf(os.Stderr, "  exporting: 0%%")
 	}
 	err := saver.Export(ctx, origRef, img, p.outputPath, cachePathFn, p.gzip,
 		func(completed, total int64) {
@@ -142,7 +142,7 @@ func exportImage(ctx context.Context, cd string, p saveParams, img v1.Image, ori
 			if total > 0 {
 				percent = float64(completed) / float64(total) * 100
 			}
-			fmt.Fprintf(os.Stderr, "\r  exporting: %.0f%% | %s / %s",
+			fmt.Fprintf(os.Stderr, "\r\033[K  exporting: %.0f%% | %s / %s",
 				percent, ui.FormatBytes(completed), ui.FormatBytes(total))
 		},
 	)

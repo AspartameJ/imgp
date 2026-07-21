@@ -87,8 +87,11 @@ func verifyGzip(cacheFile string) error {
 	}
 	defer gr.Close()
 	if _, err := io.Copy(io.Discard, gr); err != nil {
-		if rmErr := os.Remove(cacheFile); rmErr != nil {
+		if rmErr := os.Remove(cacheFile); rmErr != nil && !os.IsNotExist(rmErr) {
 			fmt.Fprintf(os.Stderr, "remove corrupted cache: %s: %v\n", cacheFile, rmErr)
+		}
+		if rmErr := os.Remove(markerFile); rmErr != nil && !os.IsNotExist(rmErr) {
+			fmt.Fprintf(os.Stderr, "remove stale marker: %s: %v\n", markerFile, rmErr)
 		}
 		return fmt.Errorf("cached layer corrupted (gzip CRC mismatch): %s: %w", cacheFile, err)
 	}
@@ -223,7 +226,7 @@ func cleanupTmp(tmpPath string) {
 
 // writeTarBall writes the image as a tar (optionally gzipped) to a temp file and renames it.
 func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outputPath string, gzipEnabled bool, progressFn func(completed, total int64)) (err error) {
-	tmpPath := outputPath + ".tmp"
+	tmpPath := fmt.Sprintf("%s.%d.tmp", outputPath, os.Getpid())
 	succeeded := false
 	defer func() {
 		if !succeeded {

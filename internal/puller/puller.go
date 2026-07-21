@@ -247,6 +247,9 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 
 		ok, err := p.downloadAttempt(ctx, ch, t, cacheFile)
 		if ok {
+			if err := os.WriteFile(cacheFile+".verified", nil, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "pull: write verification marker: %v\n", err)
+			}
 			sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex,
 				Bytes: t.Size, Total: t.Size, Status: "done",
