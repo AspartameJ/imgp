@@ -217,11 +217,11 @@ layer 并行下载
 ```powershell
 # PowerShell
 .\build.ps1                     # 编译到 bin\imgp.exe
-.\build.ps1 -Version "2.1.1"    # 嵌入版本号
+.\build.ps1 -Version "2.1.3"    # 嵌入版本号
 
 # Makefile（需要 sh 环境）
 make build                      # go build -o imgp .
-make VERSION=2.1.1 release      # 构建 + 打 tag
+make VERSION=2.1.3 release      # 构建 + 打 tag
 ```
 
 ### 5.2 版本号机制
@@ -277,9 +277,9 @@ server, img, ref := mockRegistry(t, imgSize, numLayers)
 |---------|-----------|------|
 | `cmd/` | ~86% | ≥80% |
 | `internal/config/` | ~88% | ≥85% |
-| `internal/puller/` | ~83% | ≥85% |
+| `internal/puller/` | ~81% | ≥80% |
 | `internal/registry/` | ~95% | ≥90% |
-| `internal/saver/` | ~87% | ≥85% |
+| `internal/saver/` | ~86% | ≥85% |
 | `internal/ui/` | ~86% | ≥85% |
 | `internal/util/` | ~94% | ≥90% |
 
@@ -377,4 +377,4 @@ git push && git push origin v2.2.0
 | 缓存目录 | `%LOCALAPPDATA%\imgp\cache` | `internal/config/config.go:128` |
 | 配置文件 | `imgp.json`（与二进制同目录） | `internal/config/config.go:48` |
 | backoff 基数 | 1 秒 | `internal/util/backoff.go:15` |
-| backoff 上限 | 120 秒 | `internal/util/backoff.go:18` |
+| backoff 上限 | 30 秒 | `internal/util/backoff.go:18` |

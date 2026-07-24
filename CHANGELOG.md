@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.1.3 (2026-07-24)
+
+### Fixed
+- **ANSI 终端残留 "GBGB/MBMB"** — `renderFrame` 每行前加 `\033[2K` 清行，消除 layer done→downloading 切换时的字符残留
+- **缓存未命中（export 中断后重跑）** — `processTask` 下载成功后立即写 `.verified` 标记，不再依赖 export 阶段创建
+- **CRC 错误时 `.verified` 孤立** — `verifyGzip` 检测到 CRC 错误时同步删除 `.verified` 标记
+- **export 进度条字符残留** — `\r` 改为 `\r\033[K`，清除旧行内容
+- **tmp 文件并发冲突** — `outputPath + ".tmp"` 改为 `outputPath + ".{pid}.tmp"`
+
+## v2.1.2 (2026-07-24)
+
+### Fixed
+- **ANSI 终端残留 "GBGB/MBMB"** — `renderFrame` 每行前加 `\033[2K` 清行
+- **缓存未命中（export 中断后重跑）** — 下载成功后立即写 `.verified` 标记
+
+## v2.1.1 (2026-07-24)
+
+### Added
+- **缓存总大小显示** — `imgp save` 完成后显示 `Cache: X.XX GB`
+- **DEVELOPMENT.md** — 8 节开发文档：架构、设计决策、测试指南、发布流程
+
+### Changed
+- **README 精简 70%** — 从 265 行压缩至 81 行，英文版同步
+- **README 架构图** — 新增 4 个 Mermaid 流程图（save 主流程、缓存逻辑、cache/config 子命令）
+
 ## v2.1.0 (2026-07-08)
 
 ### Added
