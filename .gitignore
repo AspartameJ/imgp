@@ -17,6 +17,9 @@ imgp.json
 *.swp
 
 # Coverage artifacts
+cover
+coverage
+cover.out
 cover.html
 cover_total
 cover_total.out
