@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.2.1 (2026-07-24)
+
+### Fixed
+- **`NewLayerFetcher` 未处理 registry bearer 认证** — v2.2.0 中手动构造的 blob 请求绕过了认证 transport，导致所有 layer 下载在需要认证的 registry 上返回 401。改用 `transport.NewWithContext` 构建带认证的 RoundTripper
+- **新增认证回归测试** — `TestNewLayerFetcher_BearerAuth` 模拟 401 challenge + token 交换
+
 ## v2.2.0 (2026-07-24)
 
 ### Added
