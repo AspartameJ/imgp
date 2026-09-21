@@ -650,6 +650,52 @@ func TestNewLayerFetcher_Range(t *testing.T) {
 	}
 }
 
+func TestNewLayerFetcher_BearerAuth(t *testing.T) {
+	blobData := []byte("authenticated layer payload")
+	var baseURL string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"token":"test-token"}`)
+	})
+	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			w.Header().Set("WWW-Authenticate",
+				fmt.Sprintf(`Bearer realm="%s/token",service="registry",scope="repository:testrepo:pull"`, baseURL))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(blobData)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	baseURL = server.URL
+
+	port := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	ref, err := name.ParseReference(fmt.Sprintf("localhost:%s/testrepo:latest", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+
+	fetcher := client.NewLayerFetcher(ref)
+	rc, err := fetcher(context.Background(), strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatalf("fetcher error (auth not handled): %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	if !bytes.Equal(got, blobData) {
+		t.Errorf("got %q, want %q", got, blobData)
+	}
+}
+
 func TestResolveRefs_TagMirror(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.MirrorMap = map[string][]string{

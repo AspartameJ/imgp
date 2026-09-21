@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
 	"gitcode.com/DonaldTom/imgp/internal/util"
@@ -185,7 +186,11 @@ func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, d
 		}
 		req.Header.Set("User-Agent", userAgent)
 
-		httpClient := &http.Client{Transport: c.transport(reg)}
+		tr, err := transport.NewWithContext(ctx, reg, c.authenticator(reg), c.transport(reg), []string{repo.Scope(transport.PullScope)})
+		if err != nil {
+			return nil, err
+		}
+		httpClient := &http.Client{Transport: tr}
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, err
