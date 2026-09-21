@@ -650,6 +650,43 @@ func TestNewLayerFetcher_Range(t *testing.T) {
 	}
 }
 
+func TestNewLayerFetcher_ServerIgnoresRange(t *testing.T) {
+	blobData := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
+
+	mux := http.NewServeMux()
+	// Always return the full body with 200, ignoring any Range header.
+	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(blobData)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	port := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	ref, err := name.ParseReference(fmt.Sprintf("localhost:%s/testrepo:latest", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+
+	fetcher := client.NewLayerFetcher(ref)
+	const offset = 10
+	rc, err := fetcher(context.Background(), strings.Repeat("b", 64), offset)
+	if err != nil {
+		t.Fatalf("fetcher error: %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	want := blobData[offset:]
+	if !bytes.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestNewLayerFetcher_BearerAuth(t *testing.T) {
 	blobData := []byte("authenticated layer payload")
 	var baseURL string
