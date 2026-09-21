@@ -65,32 +65,29 @@ flowchart TD
     Q --> R
 ```
 
-### 2. 缓存判断逻辑
+### 2. 缓存与断点续传逻辑
 
 ```mermaid
 flowchart TD
     A[开始下载 layer] --> B{--no-cache?}
-    B -- 是 --> C[跳过缓存检查]
-    B -- 否 --> D[检查 .verified 标记]
-    D --> E{标记存在?}
+    B -- 是 --> D[跳过缓存检查]
+    B -- 否 --> C[检查 .gz 与 .verified]
+    C --> E{缓存命中?}
     E -- 是 --> F[使用缓存 ✓]
-    E -- 否 --> G[检查 .gz 缓存文件]
-    G --> H{缓存存在且有效?}
-    H -- 是 --> I[验证 diff_id 匹配]
-    H -- 否 --> C
-    I --> J{匹配?}
-    J -- 是 --> F
-    J -- 否 --> C
-    C --> K[发起 HTTP 请求下载]
-    K --> L{可重试错误?}
-    L -- 是 --> M[等待后重试]
-    M --> K
-    L -- 否 --> N{成功?}
-    N -- 否 --> O[返回错误]
-    N -- 是 --> P[流式写入 .gz.tmp]
-    P --> Q[重命名为 .gz]
-    Q --> R[写入 .verified 标记]
-    R --> F
+    E -- 否 --> D
+    D --> G{--resume 且有部分文件?}
+    G -- 是 --> H[offset = 已有字节数]
+    G -- 否 --> I[offset = 0, 删除部分文件]
+    H --> J[HTTP Range 请求 bytes=offset-]
+    I --> J
+    J --> K{可重试错误?}
+    K -- 是 --> L[等待后重试]
+    L --> J
+    K -- 否 --> M{成功?}
+    M -- 否 --> N[返回错误]
+    M -- 是 --> O[写入/追加 .gz]
+    O --> P[写入 .verified 标记]
+    P --> F
 ```
 
 ### 3. cache 子命令
@@ -137,6 +134,7 @@ flowchart TD
 | `--insecure` | bool | `false` | 跳过 TLS 验证 |
 | `-P, --parallel` | int | `4` | 并行下载数 |
 | `--no-cache` | bool | `false` | 忽略缓存 |
+| `--resume` | bool | `false` | 断点续传（HTTP Range 请求续传中断的 layer） |
 | `-z, --gzip` | bool | `false` | gzip 压缩输出 |
 | `--cache-dir` | string | OS 默认 | 缓存目录 |
 | `--timeout` | int | `0`(不限) | 整体超时（分钟） |
@@ -194,7 +192,13 @@ imgp cache clear           # 清空缓存
 
 ### 中断了怎么办？
 
-已下载的 layer 自动缓存，重跑即续传。`--no-cache` 强制重下。404/401/403 等错误不会重试。
+已完整下载的 layer 自动缓存，重跑即复用。`--no-cache` 强制重下。404/401/403 等错误不会重试。
+
+未完成的 layer 默认重下；加 `--resume` 可基于已下载部分通过 HTTP Range 请求断点续传：
+
+```bash
+imgp save large-image:latest --resume -o large.tar
+```
 
 ### 支持哪些平台？
 

@@ -81,13 +81,13 @@ func pullLayers(ctx context.Context, cd string, p saveParams, img v1.Image, ref 
 			Index:     i,
 			DigestHex: dHex,
 			Size:      size,
-			OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
-				return layerFetcher(ctx, dHex)
+			OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+				return layerFetcher(ctx, dHex, offset)
 			},
 		}
 	}
 
-	pl := puller.NewPuller(cd).WithNoCache(p.noCache).WithLayerTimeout(time.Duration(p.layerTimeout) * time.Minute).WithRetry(p.retry)
+	pl := puller.NewPuller(cd).WithNoCache(p.noCache).WithResume(p.resume).WithLayerTimeout(time.Duration(p.layerTimeout) * time.Minute).WithRetry(p.retry)
 
 	eventCh, err := pl.Pull(ctx, tasks, p.parallelism)
 	if err != nil {

@@ -53,6 +53,15 @@ func mockRegistryServer(t *testing.T, imgSize int64, numLayers int64) (*httptest
 				return
 			}
 			w.Header().Set("Content-Type", "application/octet-stream")
+			if rng := r.Header.Get("Range"); rng != "" {
+				var start int64
+				if _, err := fmt.Sscanf(rng, "bytes=%d-", &start); err == nil && start < int64(len(data)) {
+					w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(data)-1, len(data)))
+					w.WriteHeader(http.StatusPartialContent)
+					w.Write(data[start:])
+					return
+				}
+			}
 			w.Write(data)
 		default:
 			http.Error(w, "not found", http.StatusNotFound)

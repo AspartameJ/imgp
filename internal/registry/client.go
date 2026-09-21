@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -162,23 +163,50 @@ func parsePlatform(platform string) *v1.Platform {
 }
 
 // NewLayerFetcher returns a function that opens a layer download stream
-// with per-call context support, allowing per-layer timeouts.
-func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, digestHex string) (io.ReadCloser, error) {
+// with per-call context support, allowing per-layer timeouts and resumable
+// downloads via HTTP Range requests. When offset > 0, the request asks the
+// registry for the blob content starting at that byte offset.
+func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 	repo := ref.Context()
-	return func(ctx context.Context, digestHex string) (io.ReadCloser, error) {
+	return func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 		hex := strings.TrimPrefix(digestHex, "sha256:")
-		digestRef := repo.Digest("sha256:" + hex)
-		reg := digestRef.Context().Registry
-		l, err := remote.Layer(digestRef,
-			remote.WithAuth(c.authenticator(reg)),
-			remote.WithTransport(c.transport(reg)),
-			remote.WithContext(ctx),
-			remote.WithUserAgent(userAgent),
-		)
+		reg := repo.Registry
+		u := url.URL{
+			Scheme: reg.Scheme(),
+			Host:   reg.RegistryStr(),
+			Path:   fmt.Sprintf("/v2/%s/blobs/sha256:%s", repo.RepositoryStr(), hex),
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
 			return nil, err
 		}
-		return l.Compressed()
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+		req.Header.Set("User-Agent", userAgent)
+
+		httpClient := &http.Client{Transport: c.transport(reg)}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		switch resp.StatusCode {
+		case http.StatusPartialContent:
+			return resp.Body, nil
+		case http.StatusOK:
+			// Server ignored our Range header and returned the full body.
+			if offset > 0 {
+				// Skip the bytes we already have so the caller can append safely.
+				if _, err := io.CopyN(io.Discard, resp.Body, offset); err != nil {
+					resp.Body.Close()
+					return nil, fmt.Errorf("fetch layer: discard prefix: %w", err)
+				}
+			}
+			return resp.Body, nil
+		default:
+			resp.Body.Close()
+			return nil, fmt.Errorf("fetch layer: unexpected status %d", resp.StatusCode)
+		}
 	}
 }
 

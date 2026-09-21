@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.2.0 (2026-07-24)
+
+### Added
+- **`--resume` 标志** — 通过 HTTP Range 请求断点续传中断的 layer（默认关闭）
+  - `LayerTask.OpenLayer` 签名新增 `offset` 参数，registry 层构造 `Range: bytes=N-` 请求
+  - `NewLayerFetcher` 改为手动构造 blob 请求，支持 `206 Partial Content`
+  - server 忽略 Range（返回 `200`）时自动丢弃已下载前缀，安全追加
+  - 重试/失败后保留部分文件，供下次续传
+
+### Changed
+- **缓存判断流程图**（README CN/EN）更新为准确的缓存 + 续传逻辑
+
+## v2.1.4 (2026-07-24)
+
+### Fixed
+- **文档** — 补充 v2.1.1~v2.1.3 变更记录，修正 DEVELOPMENT.md backoff 上限（120→30 秒）和版本示例
+
 ## v2.1.3 (2026-07-24)
 
 ### Fixed

@@ -27,13 +27,17 @@ type LayerTask struct {
 	Index     int
 	DigestHex string
 	Size      int64
-	OpenLayer func(ctx context.Context) (io.ReadCloser, error)
+	// OpenLayer opens a download stream for the layer. offset is the byte
+	// offset to resume from (0 for a full download). The returned stream
+	// contains the layer bytes starting at offset.
+	OpenLayer func(ctx context.Context, offset int64) (io.ReadCloser, error)
 }
 
 // Puller manages concurrent layer downloads with caching and retry.
 type Puller struct {
 	cacheDir     string
 	noCache      bool
+	resume       bool
 	layerTimeout time.Duration
 	maxRetries   int
 }
@@ -50,6 +54,12 @@ func NewPuller(cacheDir string) *Puller {
 // WithNoCache sets whether to ignore cached layers.
 func (p *Puller) WithNoCache(v bool) *Puller {
 	p.noCache = v
+	return p
+}
+
+// WithResume sets whether to resume interrupted downloads via HTTP Range requests.
+func (p *Puller) WithResume(v bool) *Puller {
+	p.resume = v
 	return p
 }
 
@@ -138,15 +148,28 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 	}
 	defer cancel()
 
-	rc, openErr := t.OpenLayer(layerCtx)
+	// Determine resume offset from an existing partial cache file.
+	var offset int64
+	if p.resume {
+		if fi, err := os.Stat(cacheFile); err == nil && fi.Size() > 0 && fi.Size() < t.Size {
+			offset = fi.Size()
+		}
+	}
+
+	rc, openErr := t.OpenLayer(layerCtx, offset)
 	if openErr != nil {
 		return false, openErr
 	}
 	defer rc.Close()
 
-	f, createErr := os.Create(cacheFile)
-	if createErr != nil {
-		return false, fmt.Errorf("create cache: %w", createErr)
+	var f *os.File
+	if offset > 0 {
+		f, openErr = os.OpenFile(cacheFile, os.O_WRONLY|os.O_APPEND, 0644)
+	} else {
+		f, openErr = os.Create(cacheFile)
+	}
+	if openErr != nil {
+		return false, fmt.Errorf("create cache: %w", openErr)
 	}
 	closeOnFail := true
 	defer func() {
@@ -169,7 +192,7 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 			if time.Since(lastReport) > 200*time.Millisecond {
 				if !sendEvent(ctx, ch, PullEvent{
 					Index: t.Index, Digest: t.DigestHex,
-					Bytes: written, Total: t.Size, Status: "downloading",
+					Bytes: offset + written, Total: t.Size, Status: "downloading",
 				}) {
 					return false, ctx.Err()
 				}
@@ -184,14 +207,28 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 		}
 	}
 
-	if written != t.Size {
-		return false, fmt.Errorf("incomplete download: got %d, expected %d", written, t.Size)
+	if offset+written != t.Size {
+		return false, fmt.Errorf("incomplete download: got %d, expected %d", offset+written, t.Size)
 	}
 	closeOnFail = false
 	if err := f.Close(); err != nil {
 		return false, fmt.Errorf("close cache file: %w", err)
 	}
 	return true, nil
+}
+
+// preservePartial reports whether an existing partial cache file should be kept
+// so a later attempt can resume from it via HTTP Range. It is true only when
+// resume is enabled and the file is smaller than the expected total size.
+func (p *Puller) preservePartial(cacheFile string, total int64) bool {
+	if !p.resume {
+		return false
+	}
+	fi, err := os.Stat(cacheFile)
+	if err != nil {
+		return false
+	}
+	return fi.Size() > 0 && fi.Size() < total
 }
 
 // processTask handles a single layer task: check cache, download with retry, send result event.
@@ -211,12 +248,14 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 		return
 	}
 
-	if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-		sendEvent(ctx, ch, PullEvent{
-			Index: t.Index, Digest: t.DigestHex,
-			Err: fmt.Errorf("remove cache: %w", err),
-		})
-		return
+	if !p.preservePartial(cacheFile, t.Size) {
+		if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+			sendEvent(ctx, ch, PullEvent{
+				Index: t.Index, Digest: t.DigestHex,
+				Err: fmt.Errorf("remove cache: %w", err),
+			})
+			return
+		}
 	}
 
 	if !sendEvent(ctx, ch, PullEvent{
@@ -235,8 +274,10 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			if !p.backoffOrSendError(ctx, ch, t, attempt) {
 				return
 			}
-			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "pull: remove before retry: %v\n", err)
+			if !p.preservePartial(cacheFile, t.Size) {
+				if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+					fmt.Fprintf(os.Stderr, "pull: remove before retry: %v\n", err)
+				}
 			}
 			if !sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
@@ -257,8 +298,10 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			return
 		}
 		lastErr = err
-		if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "pull: remove after failed attempt: %v\n", err)
+		if !p.preservePartial(cacheFile, t.Size) {
+			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "pull: remove after failed attempt: %v\n", err)
+			}
 		}
 	}
 

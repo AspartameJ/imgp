@@ -20,6 +20,7 @@ var (
 	parallelism     int
 	quiet           bool
 	noCache         bool
+	resume          bool
 	gzip            bool
 	cacheDir        string
 	timeoutMin      int
@@ -80,6 +81,7 @@ func init() {
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
+	saveCmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted layer downloads via HTTP Range requests")
 	saveCmd.Flags().BoolVarP(&gzip, "gzip", "z", false, "Gzip-compress the output tar file")
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)")
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")

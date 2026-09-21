@@ -65,32 +65,29 @@ flowchart TD
     Q --> R
 ```
 
-### 2. Cache resolution logic
+### 2. Cache and resume logic
 
 ```mermaid
 flowchart TD
     A[Start downloading layer] --> B{--no-cache?}
-    B -- Yes --> C[Skip cache check]
-    B -- No --> D[Check .verified marker]
-    D --> E{Marker exists?}
+    B -- Yes --> D[Skip cache check]
+    B -- No --> C[Check .gz and .verified]
+    C --> E{Cache hit?}
     E -- Yes --> F[Use cache ✓]
-    E -- No --> G[Check .gz cache file]
-    G --> H{Cache exists and valid?}
-    H -- Yes --> I[Verify diff_id match]
-    H -- No --> C
-    I --> J{Matching?}
-    J -- Yes --> F
-    J -- No --> C
-    C --> K[HTTP request]
-    K --> L{Retryable error?}
-    L -- Yes --> M[Wait and retry]
-    M --> K
-    L -- No --> N{Success?}
-    N -- No --> O[Return error]
-    N -- Yes --> P[Stream-write .gz.tmp]
-    P --> Q[Rename to .gz]
-    Q --> R[Write .verified marker]
-    R --> F
+    E -- No --> D
+    D --> G{--resume and partial file?}
+    G -- Yes --> H[offset = existing bytes]
+    G -- No --> I[offset = 0, remove partial]
+    H --> J[HTTP Range request bytes=offset-]
+    I --> J
+    J --> K{Retryable error?}
+    K -- Yes --> L[Wait and retry]
+    L --> J
+    K -- No --> M{Success?}
+    M -- No --> N[Return error]
+    M -- Yes --> O[Write/append .gz]
+    O --> P[Write .verified marker]
+    P --> F
 ```
 
 ### 3. cache subcommand
@@ -137,6 +134,7 @@ flowchart TD
 | `--insecure` | bool | `false` | Skip TLS verify |
 | `-P, --parallel` | int | `4` | Parallel downloads |
 | `--no-cache` | bool | `false` | Ignore cache |
+| `--resume` | bool | `false` | Resume interrupted layers via HTTP Range requests |
 | `-z, --gzip` | bool | `false` | Gzip-compress output |
 | `--cache-dir` | string | OS default | Cache directory |
 | `--timeout` | int | `0`(unlimited) | Overall timeout (minutes) |
@@ -194,7 +192,13 @@ Custom: `imgp config set mirror-map "docker.io=my-mirror.com"` (separate multipl
 
 ### Download interrupted?
 
-Cached layers resume automatically. Re-run the same command. `--no-cache` forces re-download. 4xx errors are NOT retried.
+Fully downloaded layers are cached and reused on re-run. `--no-cache` forces re-download. 4xx errors are NOT retried.
+
+Incomplete layers are re-downloaded by default; add `--resume` to continue them via HTTP Range requests:
+
+```bash
+imgp save large-image:latest --resume -o large.tar
+```
 
 ### What platforms are supported?
 

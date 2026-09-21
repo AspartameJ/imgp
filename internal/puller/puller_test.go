@@ -48,11 +48,15 @@ func TestNewPuller(t *testing.T) {
 func TestPullerOptions(t *testing.T) {
 	p := NewPuller("/tmp/cache").
 		WithNoCache(true).
+		WithResume(true).
 		WithLayerTimeout(5 * time.Minute).
 		WithRetry(3)
 
 	if !p.noCache {
 		t.Error("noCache should be true")
+	}
+	if !p.resume {
+		t.Error("resume should be true")
 	}
 	if p.layerTimeout != 5*time.Minute {
 		t.Errorf("layerTimeout = %v, want 5m", p.layerTimeout)
@@ -83,7 +87,7 @@ func TestPull_CacheHit(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      size,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			openCalled = true
 			return io.NopCloser(bytes.NewReader([]byte("layer data"))), nil
 		},
@@ -140,7 +144,7 @@ func TestPull_CacheMiss_Success(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}
@@ -174,7 +178,7 @@ func TestPull_NoCache(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}
@@ -194,6 +198,87 @@ func TestPull_NoCache(t *testing.T) {
 	}
 }
 
+func TestPull_Resume(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithResume(true)
+
+	digest := "resume01"
+	msg := "resumed layer content that is long enough to split"
+	payload := gzipBytes(t, msg)
+
+	half := len(payload) / 2
+	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), payload[:half], 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotOffset int64 = -1
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: digest,
+		Size:      int64(len(payload)),
+		OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+			gotOffset = offset
+			return io.NopCloser(bytes.NewReader(payload[offset:])), nil
+		},
+	}}
+
+	ctx := context.Background()
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectEvents(t, eventCh)
+	assertStatus(t, events, len(events)-1, "done")
+
+	if gotOffset != int64(half) {
+		t.Errorf("OpenLayer offset = %d, want %d", gotOffset, half)
+	}
+	got := mustDecompress(t, filepath.Join(dir, digest+".gz"))
+	if string(got) != msg {
+		t.Errorf("cached content = %q, want %q", got, msg)
+	}
+}
+
+func TestPull_ResumeDisabled(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir)
+
+	digest := "resume02"
+	msg := "fresh content without resume"
+	payload := gzipBytes(t, msg)
+
+	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), payload[:len(payload)/2], 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotOffset int64 = -1
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: digest,
+		Size:      int64(len(payload)),
+		OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+			gotOffset = offset
+			return io.NopCloser(bytes.NewReader(payload[offset:])), nil
+		},
+	}}
+
+	ctx := context.Background()
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectEvents(t, eventCh)
+	assertStatus(t, events, len(events)-1, "done")
+
+	if gotOffset != 0 {
+		t.Errorf("OpenLayer offset = %d, want 0 (resume disabled)", gotOffset)
+	}
+	got := mustDecompress(t, filepath.Join(dir, digest+".gz"))
+	if string(got) != msg {
+		t.Errorf("cached content = %q, want %q", got, msg)
+	}
+}
+
 func TestPull_DownloadFailure(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithRetry(0)
@@ -203,7 +288,7 @@ func TestPull_DownloadFailure(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return nil, errors.New("network error")
 		},
 	}}
@@ -233,7 +318,7 @@ func TestPull_ContextCancel(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -265,7 +350,7 @@ func TestPull_MultipleTasks(t *testing.T) {
 			Index:     i,
 			DigestHex: digestFromInt(i),
 			Size:      int64(len(payload)),
-			OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+			OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 				return io.NopCloser(bytes.NewReader(payload)), nil
 			},
 		}
@@ -303,7 +388,7 @@ func TestPull_CacheCorrupted(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      realSize,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}
@@ -330,7 +415,7 @@ func TestPull_SizeMismatch(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      1000, // declared larger than actual data
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(gzipBytes(t, "short"))), nil
 		},
 	}}
@@ -356,7 +441,7 @@ func TestPull_LayerTimeout(t *testing.T) {
 		Index:     0,
 		DigestHex: "slow-layer",
 		Size:      1000,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -385,7 +470,7 @@ func TestPull_ContextDeadline(t *testing.T) {
 		Index:     0,
 		DigestHex: "deadline-layer",
 		Size:      1000,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -419,7 +504,7 @@ func TestPull_RetryThenSuccess(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			attempt++
 			if attempt < 2 {
 				return nil, errors.New("connection refused")
@@ -450,7 +535,7 @@ func TestPull_RetryExhausted(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return nil, errors.New("persistent network error")
 		},
 	}}
@@ -477,7 +562,7 @@ func TestProcessTask_NonRetryableError(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return nil, errors.New("unexpected status code 403 Forbidden")
 		},
 	}}
@@ -504,7 +589,7 @@ func TestProcessTask_RemoveCleanupError(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return nil, errors.New("first attempt fails")
 		},
 	}}
@@ -531,7 +616,7 @@ func TestPull_ZeroParallel(t *testing.T) {
 		Index:     0,
 		DigestHex: "parallel0",
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}
@@ -598,7 +683,7 @@ func TestDownloadAttempt_NoTimeout(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}
@@ -623,7 +708,7 @@ func TestDownloadAttempt_ReadError(t *testing.T) {
 		Index:     0,
 		DigestHex: "readfail",
 		Size:      100,
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(&errReader{err: errors.New("simulated read error")}), nil
 		},
 	}}
@@ -659,7 +744,7 @@ func TestDownloadAttempt_WriteError(t *testing.T) {
 		Index:     0,
 		DigestHex: digest,
 		Size:      int64(len(payload)),
-		OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
 	}}

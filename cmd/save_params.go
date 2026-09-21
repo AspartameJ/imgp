@@ -23,6 +23,7 @@ type saveParams struct {
 	gzip           bool
 	quiet          bool
 	noCache        bool
+	resume         bool
 }
 
 func cmdCacheDir(cfg *config.Config) string {
@@ -119,5 +120,6 @@ func resolveSaveParams(cmd *cobra.Command, cfg *config.Config, image string) (sa
 	p.gzip = gzip
 	p.quiet = quiet
 	p.noCache = noCache
+	p.resume = resume
 	return p, nil
 }

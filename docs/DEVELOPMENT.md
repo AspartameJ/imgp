@@ -208,6 +208,28 @@ layer 并行下载
 //   2. 结束后输出最终 tar 路径
 ```
 
+### 4.5 断点续传（`--resume`）
+
+默认关闭。开启后，未完成的 layer 通过 HTTP Range 请求从断点继续下载。
+
+```
+LayerTask.OpenLayer(ctx, offset)     # internal/puller/puller.go
+  └─ offset > 0 → 请求 bytes=offset-  # internal/registry/client.go
+
+downloadAttempt()                    # internal/puller/puller.go
+  ├─ p.resume 且 0 < 文件大小 < t.Size → offset = 文件大小
+  ├─ offset > 0 → os.OpenFile(O_APPEND) 追加写
+  └─ 否则 → os.Create 从头写
+```
+
+**关键设计**:
+- `LayerTask.OpenLayer` 签名带 `offset`，由 registry 层构造 `Range: bytes=N-` 请求
+- `NewLayerFetcher` 不再用 `remote.Layer().Compressed()`，改为手动构造 `/v2/<repo>/blobs/<digest>` 请求，复用 `c.transport(reg)` 的认证
+- server 返回 `206` → 正常续传；返回 `200`（忽略 Range）→ `io.CopyN` 丢弃已下载前缀，安全追加
+- `preservePartial()` 决定是否保留部分文件：仅当 resume 开启且 `0 < 文件大小 < 目标大小`
+- 完整性由 `offset + written == t.Size` 保证，续传不会绕过校验
+- 重试时保留部分进度（不删除文件），失败后也保留，供下次续传
+
 ---
 
 ## 5. 构建与发布

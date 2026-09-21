@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -337,6 +338,15 @@ func mockRegistry(t *testing.T, imgSize int64, numLayers int64) (*httptest.Serve
 				return
 			}
 			w.Header().Set("Content-Type", "application/octet-stream")
+			if rng := r.Header.Get("Range"); rng != "" {
+				var start int64
+				if _, err := fmt.Sscanf(rng, "bytes=%d-", &start); err == nil && start < int64(len(data)) {
+					w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(data)-1, len(data)))
+					w.WriteHeader(http.StatusPartialContent)
+					w.Write(data[start:])
+					return
+				}
+			}
 			w.Write(data)
 
 		default:
@@ -587,7 +597,7 @@ func TestNewLayerFetcher(t *testing.T) {
 	layers, _ := img.Layers()
 	d, _ := layers[0].Digest()
 
-	rc, err := fetcher(context.Background(), d.Hex)
+	rc, err := fetcher(context.Background(), d.Hex, 0)
 	if err != nil {
 		t.Fatalf("fetcher error: %v", err)
 	}
@@ -595,6 +605,48 @@ func TestNewLayerFetcher(t *testing.T) {
 	data, _ := io.ReadAll(rc)
 	if len(data) == 0 {
 		t.Error("expected layer data")
+	}
+}
+
+func TestNewLayerFetcher_Range(t *testing.T) {
+	server, img, refStr := mockRegistry(t, 4096, 1)
+	defer server.Close()
+
+	ref, err := name.ParseReference(refStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+
+	fetcher := client.NewLayerFetcher(ref)
+
+	layers, _ := img.Layers()
+	d, _ := layers[0].Digest()
+
+	full, err := fetcher(context.Background(), d.Hex, 0)
+	if err != nil {
+		t.Fatalf("fetcher error: %v", err)
+	}
+	fullData, _ := io.ReadAll(full)
+	full.Close()
+	if len(fullData) < 100 {
+		t.Fatalf("expected larger layer, got %d bytes", len(fullData))
+	}
+
+	const offset = 64
+	partial, err := fetcher(context.Background(), d.Hex, offset)
+	if err != nil {
+		t.Fatalf("fetcher error: %v", err)
+	}
+	defer partial.Close()
+	partialData, _ := io.ReadAll(partial)
+
+	want := fullData[offset:]
+	if !bytes.Equal(partialData, want) {
+		t.Errorf("range fetch mismatch: got %d bytes, want %d bytes", len(partialData), len(want))
 	}
 }
 

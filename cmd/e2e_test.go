@@ -16,9 +16,10 @@ import (
 
 func TestE2E_FullPipeline(t *testing.T) {
 	tests := []struct {
-		name  string
-		gzip  bool
-		check func(t *testing.T, data []byte)
+		name   string
+		gzip   bool
+		resume bool
+		check  func(t *testing.T, data []byte)
 	}{
 		{
 			name: "tar",
@@ -38,6 +39,15 @@ func TestE2E_FullPipeline(t *testing.T) {
 				}
 				if data[0] != 0x1f || data[1] != 0x8b {
 					t.Error("output is not a valid gzip file (missing gzip magic bytes)")
+				}
+			},
+		},
+		{
+			name:   "resume",
+			resume: true,
+			check: func(t *testing.T, data []byte) {
+				if len(data) == 0 {
+					t.Error("exported tar is empty")
 				}
 			},
 		},
@@ -85,13 +95,13 @@ func TestE2E_FullPipeline(t *testing.T) {
 					Index:     i,
 					DigestHex: dHex,
 					Size:      size,
-					OpenLayer: func(ctx context.Context) (io.ReadCloser, error) {
-						return layerFetcher(ctx, dHex)
+					OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+						return layerFetcher(ctx, dHex, offset)
 					},
 				}
 			}
 
-			pl := puller.NewPuller(cacheDir)
+			pl := puller.NewPuller(cacheDir).WithResume(tt.resume)
 			eventCh, err := pl.Pull(ctx, tasks, 1)
 			if err != nil {
 				t.Fatalf("Pull: %v", err)
