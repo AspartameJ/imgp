@@ -9,7 +9,7 @@ imgp save hello-world:latest -o hello-world.tar
 docker load -i hello-world.tar
 ```
 
-Download `imgp-windows-amd64.exe` from [Releases](https://gitcode.com/DonaldTom/imgp/releases) and put it in your `PATH`, or `go install gitcode.com/DonaldTom/imgp@latest`.
+Download `imgp-windows-amd64.exe` from [Releases](https://gitcode.com/DonaldTom/imgp/releases) and put it in your `PATH`, or `go install gitcode.com/DonaldTom/imgp@latest`. Linux/macOS users should build from source (see Build from Source below).
 
 ---
 
@@ -207,6 +207,24 @@ Format `os/arch`: `linux/amd64` (default), `linux/arm64`, `linux/arm64/v8`, `win
 ### Can't access Docker Hub?
 
 Default mirrors are pre-configured (see table above). Custom: `imgp config set mirror-map "docker.io=your-mirror.com"`.
+
+---
+
+## Build from Source
+
+Requires Go 1.22+.
+
+```bash
+go build -o imgp .
+```
+
+Inject version number:
+
+```bash
+go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=2.2.1" -o imgp .
+```
+
+Cross-compile: `GOOS=linux GOARCH=amd64 go build -o imgp .` (same for darwin/windows). On Windows, use `build.ps1 -Version x.y.z`.
 
 ---
 

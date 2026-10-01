@@ -9,7 +9,7 @@ imgp save hello-world:latest -o hello-world.tar
 docker load -i hello-world.tar
 ```
 
-从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp-windows-amd64.exe` 放入 `PATH` 即可，或 `go install gitcode.com/DonaldTom/imgp@latest`。
+从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp-windows-amd64.exe` 放入 `PATH` 即可，或 `go install gitcode.com/DonaldTom/imgp@latest`。Linux/macOS 请从源码编译（见下方“从源码编译”）。
 
 ---
 
@@ -207,6 +207,24 @@ imgp save large-image:latest --resume -o large.tar
 ### Docker Hub 访问不了？
 
 默认已配国内加速（见上表）。自定义镜像站：`imgp config set mirror-map "docker.io=你的镜像地址"`。
+
+---
+
+## 从源码编译
+
+需要 Go 1.22+。
+
+```bash
+go build -o imgp .
+```
+
+注入版本号：
+
+```bash
+go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=2.2.1" -o imgp .
+```
+
+交叉编译：`GOOS=linux GOARCH=amd64 go build -o imgp .`（darwin/windows 同理）。Windows 可用 `build.ps1 -Version x.y.z`。
 
 ---
 
