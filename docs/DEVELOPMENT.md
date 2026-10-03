@@ -119,13 +119,21 @@ registry.Client.authenticator(reg)      # internal/registry/client.go
 缓存目录结构:
   <cache-dir>/
     ├── <sha256-hex>.gz            # 压缩后的 layer 数据
-    └── <sha256-hex>.gz.verified   # CRC 验证通过标记
+    └── <sha256-hex>.gz.verified   # 验证通过标记
 
 checkCache()                  # internal/puller/puller.go
   ├─ 文件存在且大小匹配？
   ├─ gzip magic bytes (0x1f 0x8b) 正确？
-  ├─ .verified 标记存在？
+  ├─ .verified 标记存在且不早于 .gz → 直接信任（快速路径）
+  ├─ 标记缺失或过期 → 对文件做 sha256 与 manifest digest 比对
+  │   ├─ 匹配 → 重写标记，标记 "cached"
+  │   └─ 不匹配 → 删除文件，重新下载
   └─ 全部满足 → 跳过下载，标记 "cached"
+
+downloadAttempt()             # internal/puller/puller.go
+  ├─ 下载时流式计算 sha256（续传时先哈希已有前缀）
+  ├─ offset + written == t.Size（字节数校验）
+  └─ sha256 == manifest digest（digest 校验，不匹配视为可重试错误）
 
 verifyGzip()                  # internal/saver/tar.go
   ├─ .verified 标记存在且新于 .gz → 跳过（快速路径）
@@ -134,10 +142,14 @@ verifyGzip()                  # internal/saver/tar.go
 ```
 
 **设计要点**:
-- puller 只检查 gzip magic bytes（快速路径）
+- puller 下载完成后立即校验 sha256；有新标记时 cache 命中只做快速检查
+- 标记缺失（崩溃遗留）或过期（文件比标记新）时按 digest 补验，而不是盲目信任或全量重下
 - saver 做完整 CRC 校验（写入 `.verified` 标记）
 - 双层检查平衡了速度和安全性
-- `.verified` 文件的 mtime 用于判断缓存是否过期（比 .gz 旧则重新验证）
+- `.verified` 文件的 mtime 用于判断标记是否过期
+
+**已知限制**:
+- 同一 digest 的并发写入（两个 `imgp save` 进程同时拉取同一镜像）不做进程间加锁，可能交错写同一缓存文件；写坏的文件会在下次命中时被 digest 校验剔除并重下，不会被错误使用，但会浪费一次下载。单进程内的并发下载不受影响（每个 task 对应不同 digest）。
 
 ### 4.3 重试策略
 
@@ -166,8 +178,9 @@ for attempt = 0; attempt <= p.maxRetries; attempt++ {
 | 类型 | 示例 | 是否重试 |
 |------|------|----------|
 | 网络错误 | connection reset, dial tcp, TLS handshake | ✅ |
-| HTTP 5xx | 500, 502, 503 | ✅ |
+| HTTP 5xx | 500, 502, 503（含带前缀的 "unexpected status code"） | ✅ |
 | HTTP 4xx | 401, 403, 404 | ❌ |
+| 内容错误 | incomplete download, digest mismatch | ✅ |
 | 上下文取消 | context canceled | ❌ |
 
 **重试次数**:
@@ -227,7 +240,7 @@ downloadAttempt()                    # internal/puller/puller.go
 - `NewLayerFetcher` 不再用 `remote.Layer().Compressed()`，改为手动构造 `/v2/<repo>/blobs/<digest>` 请求，复用 `c.transport(reg)` 的认证
 - server 返回 `206` → 正常续传；返回 `200`（忽略 Range）→ `io.CopyN` 丢弃已下载前缀，安全追加
 - `preservePartial()` 决定是否保留部分文件：仅当 resume 开启且 `0 < 文件大小 < 目标大小`
-- 完整性由 `offset + written == t.Size` 保证，续传不会绕过校验
+- 完整性由 `offset + written == t.Size` 加上 sha256 digest 校验保证（续传前先对已有前缀哈希），续传不会绕过校验
 - 重试时保留部分进度（不删除文件），失败后也保留，供下次续传
 
 ---

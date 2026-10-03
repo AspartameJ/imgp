@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.2.2 (2026-10-03)
+
+### Fixed
+- **layer digest 从未校验** — 下载全程流式计算 sha256 并与 manifest digest 比对（续传时先对已有前缀哈希）；不匹配视为可重试错误并删除损坏的缓存文件，重新下载
+- **缓存 `.verified` 标记盲目信任** — 标记缺失（崩溃遗留）或文件比标记新时按 digest 补验，通过后重写标记；不再无条件信任标记
+- **`config set retry 0` 不生效** — `Config.Retry` 去掉 `json:"retry,omitempty"`，0 值可持久化
+- **layer HTTP 5xx 不重试** — `unexpected status code N` 改为在消息任意位置匹配（`fetch layer:`、URL 前缀不再破坏解析），5xx 正确进入重试
+- **`incomplete download` / `digest mismatch` 不重试** — 加入可重试错误列表（仅内容错误，不触发连通性提示）
+- **export 前误删旧输出文件** — `tar` 导出不再在 rename 前 `os.Remove` 旧文件，rename 失败时保留原文件
+- **非 TTY 输出污染** — `renderFrame` 仅在 ANSI 模式输出 `\033[2K`；非 TTY 模式按状态变化打印（而非每 250ms 重复），export 进度百分比仅在 stderr 为终端时输出
+
 ## v2.2.1 (2026-07-24)
 
 ### Fixed
