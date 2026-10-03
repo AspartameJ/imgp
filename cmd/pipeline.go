@@ -130,12 +130,15 @@ func exportImage(ctx context.Context, cd string, p saveParams, img v1.Image, ori
 		return filepath.Join(cd, digest+".gz")
 	}
 
-	if !p.quiet {
+	// Live export percentage is only meaningful on a terminal; redirected
+	// output gets the header and the final result instead of escape codes.
+	tty := ui.IsStderrTerminal()
+	if !p.quiet && tty {
 		fmt.Fprintf(os.Stderr, "  exporting: 0%%")
 	}
 	err := saver.Export(ctx, origRef, img, p.outputPath, cachePathFn, p.gzip,
 		func(completed, total int64) {
-			if p.quiet {
+			if p.quiet || !tty {
 				return
 			}
 			percent := 0.0

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"math"
@@ -275,6 +276,9 @@ func TestRenderFrame_NonANSI(t *testing.T) {
 	if !strings.Contains(frame, "75.0%") {
 		t.Errorf("expected 75.0%% in frame, got: %q", frame)
 	}
+	if strings.Contains(frame, "\x1b") {
+		t.Errorf("non-ANSI frame must not contain escape codes, got: %q", frame)
+	}
 }
 
 func TestRenderFrame_NonANSI_AllDone(t *testing.T) {
@@ -313,6 +317,9 @@ func TestRenderFrame_ANSI(t *testing.T) {
 	}
 	if !strings.Contains(frame, "\u2713") {
 		t.Error("expected check mark in frame")
+	}
+	if !strings.Contains(frame, "\033[2K") {
+		t.Error("ANSI frame should contain erase-line escape")
 	}
 }
 
@@ -426,5 +433,43 @@ func TestProgressDisplay_ActiveMode(t *testing.T) {
 	}
 	if layers[0].Status != "done" {
 		t.Errorf("layer[0] status = %q, want done", layers[0].Status)
+	}
+}
+
+func TestRunPullUI_NonANSI_NoEscapesAndNoSpam(t *testing.T) {
+	var buf bytes.Buffer
+	old := stderr
+	stderr = &buf
+	defer func() { stderr = old }()
+
+	pd := &ProgressDisplay{useANSI: false}
+	eventCh := make(chan puller.PullEvent, 8)
+	tasks := []puller.LayerTask{{Index: 0, DigestHex: "abc", Size: 100}}
+
+	// The events share the same status until "done": byte-level progress
+	// must not re-print the frame in non-ANSI mode.
+	go func() {
+		eventCh <- puller.PullEvent{Index: 0, Digest: "abc", Bytes: 10, Total: 100, Status: "downloading"}
+		eventCh <- puller.PullEvent{Index: 0, Digest: "abc", Bytes: 60, Total: 100, Status: "downloading"}
+		time.Sleep(600 * time.Millisecond)
+		eventCh <- puller.PullEvent{Index: 0, Digest: "abc", Bytes: 100, Total: 100, Status: "done"}
+		close(eventCh)
+	}()
+
+	quit := pd.RunPullUI(context.Background(), eventCh, tasks)
+	<-quit
+
+	out := buf.String()
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("non-ANSI output must not contain escape codes, got: %q", out)
+	}
+	if !strings.Contains(out, "layers: [") {
+		t.Errorf("expected at least one frame, got: %q", out)
+	}
+	if n := strings.Count(out, "layers: ["); n > 3 {
+		t.Errorf("frame printed %d times, want at most 3 (status-change printing only)", n)
+	}
+	if !strings.Contains(out, "\u2713") {
+		t.Errorf("expected final done frame, got: %q", out)
 	}
 }

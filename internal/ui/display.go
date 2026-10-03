@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -11,7 +12,8 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/puller"
 )
 
-var stderr = os.Stderr
+// stderr receives progress frames; an io.Writer so tests can capture output.
+var stderr io.Writer = os.Stderr
 
 type LayerState struct {
 	Index   int
@@ -170,9 +172,16 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 
 	s := p.calcProgress()
 
+	// Erase-line escapes only make sense on a terminal; keep redirected
+	// output free of control characters.
+	erase := ""
+	if p.useANSI {
+		erase = "\033[2K"
+	}
+
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "\033[2K  layers: [%d/%d] %.1f%% | %s / %s\n",
-		s.doneLayers, totalLayers, s.percent,
+	fmt.Fprintf(&buf, "%s  layers: [%d/%d] %.1f%% | %s / %s\n",
+		erase, s.doneLayers, totalLayers, s.percent,
 		FormatBytes(s.currentBytes), FormatBytes(p.Total))
 
 	for _, ls := range p.Layers {
@@ -180,24 +189,39 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 		digest := Shorten(ls.Digest, 12)
 		switch ls.Status {
 		case "cached":
-			fmt.Fprintf(&buf, "\033[2K    %s %s (cached)\n", "\u2713", digest)
+			fmt.Fprintf(&buf, "%s    %s %s (cached)\n", erase, "\u2713", digest)
 		case "done":
-			fmt.Fprintf(&buf, "\033[2K    %s %s %s\n", "\u2713", digest, bar)
+			fmt.Fprintf(&buf, "%s    %s %s %s\n", erase, "\u2713", digest, bar)
 		case "downloading":
-			fmt.Fprintf(&buf, "\033[2K    %s %s %s %s/%s\n",
-				"\u25CB", digest, bar,
+			fmt.Fprintf(&buf, "%s    %s %s %s %s/%s\n",
+				erase, "\u25CB", digest, bar,
 				FormatBytes(ls.Current), FormatBytes(ls.Total))
 		case "error":
 			msg := "download failed"
 			if ls.ErrMsg != "" {
 				msg = ls.ErrMsg
 			}
-			fmt.Fprintf(&buf, "\033[2K    %s %s %s\n", "\u2717", digest, msg)
+			fmt.Fprintf(&buf, "%s    %s %s %s\n", erase, "\u2717", digest, msg)
 		default:
-			fmt.Fprintf(&buf, "\033[2K    %s %s waiting...\n", "\u00B7", digest)
+			fmt.Fprintf(&buf, "%s    %s %s waiting...\n", erase, "\u00B7", digest)
 		}
 	}
 	return buf.String(), s.allDone
+}
+
+// stateSignature captures per-layer status transitions (not byte counts), so
+// non-ANSI output can be printed once per change instead of on every tick.
+func (p *ProgressDisplay) stateSignature() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var b strings.Builder
+	for _, ls := range p.Layers {
+		b.WriteString(ls.Status)
+		b.WriteByte('|')
+		b.WriteString(ls.ErrMsg)
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 func (p *ProgressDisplay) RunPullUI(ctx context.Context, eventCh <-chan puller.PullEvent, tasks []puller.LayerTask) <-chan struct{} {
@@ -218,26 +242,43 @@ func (p *ProgressDisplay) RunPullUI(ctx context.Context, eventCh <-chan puller.P
 	defer ticker.Stop()
 
 	prevLayers := 0
+	prevSig := ""
 	for {
 		select {
 		case <-ctx.Done():
 			<-readerDone
 			return quit
 		case <-ticker.C:
-			if prevLayers > 0 && p.useANSI {
-				fmt.Fprintf(stderr, "\033[%dA", prevLayers)
-			}
 			frame, allDone := p.renderFrame(totalLayers)
 			if p.useANSI {
+				if prevLayers > 0 {
+					fmt.Fprintf(stderr, "\033[%dA", prevLayers)
+				}
 				prevLayers = 1 + totalLayers
+				fmt.Fprint(stderr, frame)
+			} else {
+				// Without a terminal the frame cannot be refreshed in place;
+				// print it only when a layer status changes so redirected
+				// logs stay readable instead of repeating every 250ms.
+				if sig := p.stateSignature(); sig != prevSig {
+					prevSig = sig
+					fmt.Fprint(stderr, frame)
+				}
 			}
-			fmt.Fprint(stderr, frame)
 
 			if allDone {
 				<-readerDone
 				return quit
 			}
 		case <-readerDone:
+			// The pull can finish between two ticks; flush the final frame
+			// so redirected logs do not end on stale progress.
+			if !p.useANSI {
+				frame, _ := p.renderFrame(totalLayers)
+				if sig := p.stateSignature(); sig != prevSig {
+					fmt.Fprint(stderr, frame)
+				}
+			}
 			return quit
 		}
 	}
