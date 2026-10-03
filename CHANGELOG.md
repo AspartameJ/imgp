@@ -2,6 +2,9 @@
 
 ## v2.2.2 (2026-10-03)
 
+### Added
+- **续传提示** — layer 从断点恢复时向 stderr 输出 `pull: resuming <digest12> from byte N`
+
 ### Fixed
 - **layer digest 从未校验** — 下载全程流式计算 sha256 并与 manifest digest 比对（续传时先对已有前缀哈希）；不匹配视为可重试错误并删除损坏的缓存文件，重新下载
 - **缓存 `.verified` 标记盲目信任** — 标记缺失（崩溃遗留）或文件比标记新时按 digest 补验，通过后重写标记；不再无条件信任标记
