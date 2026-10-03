@@ -135,6 +135,25 @@ func TestSave_StripPassword(t *testing.T) {
 	}
 }
 
+func TestSave_RetryZeroRoundTrip(t *testing.T) {
+	cp := filepath.Join(t.TempDir(), "imgp.json")
+
+	cfg := DefaultConfig()
+	cfg.configPath = cp
+	cfg.Retry = 0
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	cfg2, err := LoadFrom(cp)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg2.Retry != 0 {
+		t.Errorf("Retry = %d, want 0 (retry must survive omitempty-less save)", cfg2.Retry)
+	}
+}
+
 func TestOsDefaultCacheDir(t *testing.T) {
 	t.Run("with LOCALAPPDATA", func(t *testing.T) {
 		original := os.Getenv("LOCALAPPDATA")

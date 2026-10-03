@@ -7,13 +7,21 @@ import (
 	"strings"
 )
 
-var retryableSubstrings = []string{
+// networkSubstrings match transport-level failures: worth retrying and, when
+// a manifest fetch fails this way, worth suggesting a mirror for.
+var networkSubstrings = []string{
 	"unexpected EOF", "connection reset", "connection refused",
 	"TLS handshake", "broken pipe", "dial tcp", "i/o timeout",
 }
 
-func containsRetryable(msg string) bool {
-	for _, s := range retryableSubstrings {
+// contentSubstrings match content-level download failures (truncated or
+// corrupted layer data). Retryable, but not a connectivity problem.
+var contentSubstrings = []string{
+	"incomplete download", "digest mismatch",
+}
+
+func containsAny(msg string, subs []string) bool {
+	for _, s := range subs {
 		if strings.Contains(msg, s) {
 			return true
 		}
@@ -22,11 +30,19 @@ func containsRetryable(msg string) bool {
 }
 
 func httpStatusCode(msg string) int {
-	var code int
-	if _, err := fmt.Sscanf(msg, "unexpected status code %d", &code); err == nil {
-		return code
+	// Errors may be prefixed with a URL (e.g. "GET https://...: unexpected
+	// status code 502 Bad Gateway"), so locate the marker instead of parsing
+	// from the start of the message.
+	const marker = "unexpected status code"
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return 0
 	}
-	return 0
+	var code int
+	if _, err := fmt.Sscanf(msg[i+len(marker):], "%d", &code); err != nil {
+		return 0
+	}
+	return code
 }
 
 func isNetError(err error) bool {
@@ -46,7 +62,7 @@ func IsRetryable(err error) bool {
 	if code := httpStatusCode(msg); code != 0 {
 		return code >= 500
 	}
-	return containsRetryable(msg)
+	return containsAny(msg, networkSubstrings) || containsAny(msg, contentSubstrings)
 }
 
 // IsConnectivityError returns true for errors that indicate a network connectivity
@@ -59,7 +75,7 @@ func IsConnectivityError(err error) bool {
 	if isNetError(err) {
 		return true
 	}
-	return containsRetryable(err.Error())
+	return containsAny(err.Error(), networkSubstrings)
 }
 
 // IsValidArch checks if arch is a known CPU architecture.

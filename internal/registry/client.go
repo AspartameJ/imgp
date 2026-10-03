@@ -210,7 +210,7 @@ func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, d
 			return resp.Body, nil
 		default:
 			resp.Body.Close()
-			return nil, fmt.Errorf("fetch layer: unexpected status %d", resp.StatusCode)
+			return nil, fmt.Errorf("fetch layer: unexpected status code %d", resp.StatusCode)
 		}
 	}
 }

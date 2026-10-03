@@ -2,10 +2,13 @@ package puller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +89,38 @@ func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
 	}
 }
 
+func writeVerifiedMarker(markerFile string) {
+	if err := os.WriteFile(markerFile, nil, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "pull: write verification marker: %v\n", err)
+	}
+}
+
+func removeCacheFile(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "pull: remove %s: %v\n", path, err)
+	}
+}
+
+// fileDigestMatches reports whether the sha256 of the file at path equals the
+// expected digest hex (with or without the "sha256:" prefix).
+func fileDigestMatches(path, wantHex string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return hex.EncodeToString(h.Sum(nil)) == strings.TrimPrefix(wantHex, "sha256:")
+}
+
 // checkCache verifies and uses a cached layer; returns true if cache was used.
+// A file is trusted when its .verified marker exists and the file has not
+// changed since (mtime). Without a marker (crash before the marker write) or
+// with a stale marker the file's sha256 is checked against the expected
+// digest; corrupt files are removed so the layer is re-downloaded.
 func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTask, cacheFile string) bool {
 	if p.noCache {
 		return false
@@ -102,17 +136,34 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 	if e != nil {
 		return false
 	}
-	defer f.Close()
 	var magic [2]byte
-	if _, err := f.Read(magic[:]); err != nil {
+	_, readErr := io.ReadFull(f, magic[:])
+	f.Close()
+	if readErr != nil || magic[0] != 0x1f || magic[1] != 0x8b {
 		return false
 	}
-	if magic[0] != 0x1f || magic[1] != 0x8b {
-		return false
+
+	markerFile := cacheFile + ".verified"
+	mi, markerErr := os.Stat(markerFile)
+	switch {
+	case markerErr != nil:
+		// Complete but unverified (e.g. crash before the marker was written):
+		// verify by digest instead of re-downloading.
+		if !fileDigestMatches(cacheFile, t.DigestHex) {
+			removeCacheFile(cacheFile)
+			return false
+		}
+		writeVerifiedMarker(markerFile)
+	case fi.ModTime().After(mi.ModTime()):
+		// File was modified after verification: re-verify by digest.
+		if !fileDigestMatches(cacheFile, t.DigestHex) {
+			removeCacheFile(cacheFile)
+			removeCacheFile(markerFile)
+			return false
+		}
+		writeVerifiedMarker(markerFile)
 	}
-	if _, err := os.Stat(cacheFile + ".verified"); err != nil {
-		return false
-	}
+
 	if !sendEvent(ctx, ch, PullEvent{
 		Index: t.Index, Digest: t.DigestHex,
 		Bytes: t.Size, Total: t.Size, Status: "cached",
@@ -156,6 +207,21 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 		}
 	}
 
+	// Hash all layer bytes (existing prefix + new) so the digest can be
+	// verified against the manifest once the download completes.
+	h := sha256.New()
+	if offset > 0 {
+		pf, err := os.Open(cacheFile)
+		if err != nil {
+			return false, fmt.Errorf("open partial layer for hashing: %w", err)
+		}
+		if _, err := io.CopyN(h, pf, offset); err != nil {
+			pf.Close()
+			return false, fmt.Errorf("hash partial layer: %w", err)
+		}
+		pf.Close()
+	}
+
 	rc, openErr := t.OpenLayer(layerCtx, offset)
 	if openErr != nil {
 		return false, openErr
@@ -188,6 +254,7 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				return false, werr
 			}
+			h.Write(buf[:n])
 			written += int64(n)
 			if time.Since(lastReport) > 200*time.Millisecond {
 				if !sendEvent(ctx, ch, PullEvent{
@@ -209,6 +276,10 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 
 	if offset+written != t.Size {
 		return false, fmt.Errorf("incomplete download: got %d, expected %d", offset+written, t.Size)
+	}
+	want := strings.TrimPrefix(t.DigestHex, "sha256:")
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		return false, fmt.Errorf("digest mismatch: got sha256:%s, want sha256:%s", got, want)
 	}
 	closeOnFail = false
 	if err := f.Close(); err != nil {
@@ -288,9 +359,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 
 		ok, err := p.downloadAttempt(ctx, ch, t, cacheFile)
 		if ok {
-			if err := os.WriteFile(cacheFile+".verified", nil, 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "pull: write verification marker: %v\n", err)
-			}
+			writeVerifiedMarker(cacheFile + ".verified")
 			sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex,
 				Bytes: t.Size, Total: t.Size, Status: "done",

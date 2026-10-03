@@ -24,7 +24,7 @@ type Config struct {
 	Parallelism        int                   `json:"parallelism"`
 	LayerTimeout       *int                  `json:"layer_timeout,omitempty"`
 	Timeout            *int                  `json:"timeout,omitempty"`
-	Retry              int                   `json:"retry,omitempty"`
+	Retry              int                   `json:"retry"`
 	CacheDir           string                `json:"cache_dir,omitempty"`
 
 	configPath string

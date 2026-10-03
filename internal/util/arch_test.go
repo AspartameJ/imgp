@@ -20,6 +20,10 @@ func TestIsRetryable(t *testing.T) {
 		{errors.New("unexpected status code 403"), false},
 		{errors.New("unexpected status code 404"), false},
 		{errors.New("unexpected status code 503"), true},
+		{errors.New("GET https://registry-1.docker.io/v2/: unexpected status code 502 Bad Gateway"), true},
+		{errors.New("fetch layer: unexpected status code 500"), true},
+		{errors.New("incomplete download: got 10, expected 100"), true},
+		{errors.New("digest mismatch: got sha256:aa, want sha256:bb"), true},
 		{errors.New("unexpected EOF"), true},
 		{errors.New("connection reset by peer"), true},
 		{errors.New("TLS handshake error"), true},
@@ -63,6 +67,8 @@ func TestIsConnectivityError(t *testing.T) {
 		{"i/o timeout", fmt.Errorf("i/o timeout"), true},
 		{"HTTP 500", fmt.Errorf("unexpected status code 500"), false},
 		{"HTTP 404", fmt.Errorf("unexpected status code 404"), false},
+		{"incomplete download", fmt.Errorf("incomplete download: got 1, expected 2"), false},
+		{"digest mismatch", fmt.Errorf("digest mismatch: got a, want b"), false},
 		{"random", fmt.Errorf("something else"), false},
 	}
 	for _, tt := range tests {

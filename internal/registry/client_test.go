@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 
 	"gitcode.com/DonaldTom/imgp/internal/config"
+	"gitcode.com/DonaldTom/imgp/internal/util"
 )
 
 func TestTransport_Default(t *testing.T) {
@@ -684,6 +685,43 @@ func TestNewLayerFetcher_ServerIgnoresRange(t *testing.T) {
 	want := blobData[offset:]
 	if !bytes.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestNewLayerFetcher_ServerError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/blobs/") {
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{}"))
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	port := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	ref, err := name.ParseReference(fmt.Sprintf("localhost:%s/testrepo:latest", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg)
+
+	fetcher := client.NewLayerFetcher(ref)
+	_, err = fetcher(context.Background(), strings.Repeat("b", 64), 0)
+	if err == nil {
+		t.Fatal("expected error for 502 response")
+	}
+	if !strings.Contains(err.Error(), "unexpected status code 502") {
+		t.Errorf("error = %v, want 'unexpected status code 502'", err)
+	}
+	if !util.IsRetryable(err) {
+		t.Errorf("IsRetryable(%v) = false, want true (5xx must be retryable)", err)
 	}
 }
 

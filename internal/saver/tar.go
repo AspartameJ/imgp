@@ -290,9 +290,9 @@ func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outpu
 		return ctx.Err()
 	}
 
-	if err := os.Remove(outputPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove existing output: %w", err)
-	}
+	// os.Rename atomically replaces an existing destination on POSIX and
+	// Windows, so no pre-removal: if the rename fails the previous output
+	// stays intact.
 	if err := os.Rename(tmpPath, outputPath); err != nil {
 		return fmt.Errorf("rename output: %w", err)
 	}

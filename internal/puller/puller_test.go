@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -136,9 +138,9 @@ func TestPull_CacheMiss_Success(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir)
 
-	digest := "deadbeef"
 	msg := "freshly downloaded layer content"
 	payload := gzipBytes(t, msg)
+	digest := digestOf(payload)
 
 	tasks := []LayerTask{{
 		Index:     0,
@@ -170,10 +172,10 @@ func TestPull_NoCache(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithNoCache(true)
 
-	digest := "cafebabe"
-	createGzipLayer(t, dir, digest, []byte("stale data"))
-
 	payload := gzipBytes(t, "fresh data")
+	digest := digestOf(payload)
+	createGzipLayer(t, dir, "stale", []byte("stale data"))
+
 	tasks := []LayerTask{{
 		Index:     0,
 		DigestHex: digest,
@@ -202,9 +204,9 @@ func TestPull_Resume(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithResume(true)
 
-	digest := "resume01"
 	msg := "resumed layer content that is long enough to split"
 	payload := gzipBytes(t, msg)
+	digest := digestOf(payload)
 
 	half := len(payload) / 2
 	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), payload[:half], 0644); err != nil {
@@ -243,9 +245,9 @@ func TestPull_ResumeDisabled(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir)
 
-	digest := "resume02"
 	msg := "fresh content without resume"
 	payload := gzipBytes(t, msg)
+	digest := digestOf(payload)
 
 	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), payload[:len(payload)/2], 0644); err != nil {
 		t.Fatal(err)
@@ -348,7 +350,7 @@ func TestPull_MultipleTasks(t *testing.T) {
 	for i, payload := range payloads {
 		tasks[i] = LayerTask{
 			Index:     i,
-			DigestHex: digestFromInt(i),
+			DigestHex: digestOf(payload),
 			Size:      int64(len(payload)),
 			OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 				return io.NopCloser(bytes.NewReader(payload)), nil
@@ -378,16 +380,17 @@ func TestPull_CacheCorrupted(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithRetry(0)
 
-	digest := "corrupted"
-	// Write a non-gzip file with correct size
 	payload := gzipBytes(t, "real content")
-	realSize := int64(len(payload))
-	os.WriteFile(filepath.Join(dir, digest+".gz"), []byte("not-gzip-data"), 0644)
+	digest := digestOf(payload)
+	// Corrupt cache file with the correct size and gzip magic but wrong
+	// content: the digest check must reject and remove it.
+	corrupt := bytes.Repeat([]byte{0x1f, 0x8b, 0x00, 0x00}, len(payload)/4+1)[:len(payload)]
+	os.WriteFile(filepath.Join(dir, digest+".gz"), corrupt, 0644)
 
 	tasks := []LayerTask{{
 		Index:     0,
 		DigestHex: digest,
-		Size:      realSize,
+		Size:      int64(len(payload)),
 		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
 		},
@@ -497,9 +500,9 @@ func TestPull_RetryThenSuccess(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithRetry(2)
 
-	digest := "retrythenok"
-	attempt := 0
 	payload := gzipBytes(t, "finally works")
+	digest := digestOf(payload)
+	attempt := 0
 	tasks := []LayerTask{{
 		Index:     0,
 		DigestHex: digest,
@@ -614,7 +617,7 @@ func TestPull_ZeroParallel(t *testing.T) {
 	payload := gzipBytes(t, "data")
 	tasks := []LayerTask{{
 		Index:     0,
-		DigestHex: "parallel0",
+		DigestHex: digestOf(payload),
 		Size:      int64(len(payload)),
 		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(payload)), nil
@@ -640,11 +643,12 @@ func TestCheckCache_BadGzipHeader(t *testing.T) {
 
 	digest := "badgzip"
 	cacheFile := filepath.Join(dir, digest+".gz")
-	// Write a file that exists but has invalid gzip header
-	os.WriteFile(cacheFile, []byte("not gzip data"), 0644)
+	// File with matching size but invalid gzip header: the magic check must reject it.
+	bad := []byte("not gzip data")
+	os.WriteFile(cacheFile, bad, 0644)
 
 	ch := make(chan PullEvent, 1)
-	task := LayerTask{Index: 0, DigestHex: digest, Size: 100}
+	task := LayerTask{Index: 0, DigestHex: digest, Size: int64(len(bad))}
 	ok := p.checkCache(context.Background(), ch, task, cacheFile)
 	if ok {
 		t.Error("expected false for corrupted cache file")
@@ -677,7 +681,7 @@ func TestDownloadAttempt_NoTimeout(t *testing.T) {
 	p := NewPuller(dir).WithRetry(0).WithLayerTimeout(0)
 
 	payload := gzipBytes(t, "data no timeout")
-	digest := "notimeout"
+	digest := digestOf(payload)
 
 	tasks := []LayerTask{{
 		Index:     0,
@@ -765,6 +769,156 @@ func TestDownloadAttempt_WriteError(t *testing.T) {
 	}
 }
 
+func TestPull_DigestMismatch(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithRetry(0)
+
+	payload := gzipBytes(t, "payload that does not match the digest")
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: "0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      int64(len(payload)),
+		OpenLayer: func(ctx context.Context, _ int64) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(payload)), nil
+		},
+	}}
+
+	ctx := context.Background()
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := collectEvents(t, eventCh)
+	last := events[len(events)-1]
+	if last.Status != "error" {
+		t.Fatalf("final status = %q, want error on digest mismatch", last.Status)
+	}
+	if !strings.Contains(last.Err.Error(), "digest mismatch") {
+		t.Errorf("error = %v, want digest mismatch", last.Err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, tasks[0].DigestHex+".gz")); !os.IsNotExist(err) {
+		t.Error("corrupt cache file should be removed after digest mismatch")
+	}
+}
+
+func TestPull_Resume_CorruptPrefix(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithRetry(0).WithResume(true)
+
+	payload := gzipBytes(t, "valid suffix follows a corrupted prefix")
+	digest := digestOf(payload)
+	half := len(payload) / 2
+
+	garbage := bytes.Repeat([]byte{0xaa}, half)
+	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), garbage, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotOffset int64 = -1
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: digest,
+		Size:      int64(len(payload)),
+		OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+			gotOffset = offset
+			return io.NopCloser(bytes.NewReader(payload[offset:])), nil
+		},
+	}}
+
+	ctx := context.Background()
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectEvents(t, eventCh)
+	last := events[len(events)-1]
+	if last.Status != "error" {
+		t.Fatalf("final status = %q, want error for corrupt resumed prefix", last.Status)
+	}
+	if !strings.Contains(last.Err.Error(), "digest mismatch") {
+		t.Errorf("error = %v, want digest mismatch", last.Err)
+	}
+	if gotOffset != int64(half) {
+		t.Errorf("OpenLayer offset = %d, want %d (resume still uses the partial file)", gotOffset, half)
+	}
+}
+
+func TestCheckCache_CompleteWithoutMarker_Valid(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir)
+
+	payload := gzipBytes(t, "complete but unverified layer")
+	digest := digestOf(payload)
+	cacheFile := filepath.Join(dir, digest+".gz")
+	if err := os.WriteFile(cacheFile, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan PullEvent, 1)
+	task := LayerTask{Index: 0, DigestHex: digest, Size: int64(len(payload))}
+	if !p.checkCache(context.Background(), ch, task, cacheFile) {
+		t.Fatal("checkCache = false, want true (digest verified)")
+	}
+	if evt := <-ch; evt.Status != "cached" {
+		t.Errorf("status = %q, want cached", evt.Status)
+	}
+	if _, err := os.Stat(cacheFile + ".verified"); err != nil {
+		t.Errorf("verification marker should be written: %v", err)
+	}
+}
+
+func TestCheckCache_CompleteWithoutMarker_Corrupt(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir)
+
+	payload := gzipBytes(t, "content the manifest does not expect")
+	cacheFile := filepath.Join(dir, digestOf(payload)+".gz")
+	if err := os.WriteFile(cacheFile, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan PullEvent, 1)
+	task := LayerTask{Index: 0, DigestHex: "1111111111111111111111111111111111111111111111111111111111111111", Size: int64(len(payload))}
+	if p.checkCache(context.Background(), ch, task, cacheFile) {
+		t.Fatal("checkCache = true, want false for digest mismatch")
+	}
+	if _, err := os.Stat(cacheFile); !os.IsNotExist(err) {
+		t.Error("corrupt cache file should be removed")
+	}
+}
+
+func TestCheckCache_StaleMarker(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir)
+
+	payload := gzipBytes(t, "file modified after verification")
+	cacheFile := filepath.Join(dir, digestOf(payload)+".gz")
+	if err := os.WriteFile(cacheFile, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	marker := cacheFile + ".verified"
+	if err := os.WriteFile(marker, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(marker, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan PullEvent, 1)
+	task := LayerTask{Index: 0, DigestHex: "2222222222222222222222222222222222222222222222222222222222222222", Size: int64(len(payload))}
+	if p.checkCache(context.Background(), ch, task, cacheFile) {
+		t.Fatal("checkCache = true, want false for stale marker + digest mismatch")
+	}
+	if _, err := os.Stat(cacheFile); !os.IsNotExist(err) {
+		t.Error("corrupt cache file should be removed")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Error("stale marker should be removed with the file")
+	}
+}
+
 // --- helpers ---
 
 func collectEvents(t *testing.T, ch <-chan PullEvent) []PullEvent {
@@ -836,6 +990,7 @@ func mustDecompress(t *testing.T, path string) []byte {
 	return data
 }
 
-func digestFromInt(n int) string {
-	return fmt.Sprintf("%024d", n)
+func digestOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
