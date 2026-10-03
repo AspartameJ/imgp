@@ -211,6 +211,11 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 	// verified against the manifest once the download completes.
 	h := sha256.New()
 	if offset > 0 {
+		d := t.DigestHex
+		if len(d) > 12 {
+			d = d[:12]
+		}
+		fmt.Fprintf(os.Stderr, "pull: resuming %s from byte %d\n", d, offset)
 		pf, err := os.Open(cacheFile)
 		if err != nil {
 			return false, fmt.Errorf("open partial layer for hashing: %w", err)
