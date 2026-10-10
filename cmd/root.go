@@ -20,7 +20,7 @@ var (
 	parallelism     int
 	quiet           bool
 	noCache         bool
-	resume          bool
+	noResume        bool
 	gzip            bool
 	cacheDir        string
 	timeoutMin      int
@@ -81,10 +81,23 @@ func init() {
 		"Number of parallel layer downloads (default: from config, or 4)")
 	saveCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Quiet mode, less output")
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
-	saveCmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted layer downloads via HTTP Range requests")
+	saveCmd.Flags().BoolVar(&noResume, "no-resume", false, "Discard partial layers and re-download from scratch (resume is enabled by default)")
 	saveCmd.Flags().BoolVarP(&gzip, "gzip", "z", false, "Gzip-compress the output tar file")
 	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)")
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&retryCount, "retry", 2, "Number of retries on network errors (0 = no retry)")
+
+	_ = saveCmd.RegisterFlagCompletionFunc("platform", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{
+			"linux/amd64\tDefault platform",
+			"linux/arm64",
+			"linux/arm64/v8",
+			"linux/386",
+			"windows/amd64",
+			"windows/arm64",
+			"darwin/amd64",
+			"darwin/arm64",
+		}, cobra.ShellCompDirectiveNoFileComp
+	})
 }

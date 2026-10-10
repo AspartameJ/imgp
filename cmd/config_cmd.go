@@ -31,6 +31,20 @@ Supported keys:
   retry               Number of retries on network errors (default: 2)
   cache-dir           Custom cache directory path (default: OS-specific path)`,
 	Args: cobra.ExactArgs(2),
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return []string{
+			"mirror-map\tregistry=mirror pairs",
+			"insecure-registries\thostnames to skip TLS verify",
+			"parallelism\tparallel download count",
+			"layer-timeout\tper-layer timeout in minutes",
+			"timeout\toverall timeout in minutes",
+			"retry\tnetwork retry count",
+			"cache-dir\tcustom cache directory",
+		}, cobra.ShellCompDirectiveNoFileComp
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

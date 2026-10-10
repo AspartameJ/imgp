@@ -124,6 +124,7 @@ func saveGlobals() func() {
 	lt := layerTimeoutMin
 	pw := password
 	pe := passwordEnv
+	nr := noResume
 	return func() {
 		platform = p
 		output = o
@@ -139,5 +140,6 @@ func saveGlobals() func() {
 		layerTimeoutMin = lt
 		password = pw
 		passwordEnv = pe
+		noResume = nr
 	}
 }

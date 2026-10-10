@@ -120,6 +120,6 @@ func resolveSaveParams(cmd *cobra.Command, cfg *config.Config, image string) (sa
 	p.gzip = gzip
 	p.quiet = quiet
 	p.noCache = noCache
-	p.resume = resume
+	p.resume = !noResume
 	return p, nil
 }

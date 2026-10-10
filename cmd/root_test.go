@@ -53,6 +53,9 @@ func TestResolveSaveParams_Defaults(t *testing.T) {
 	if p.noCache {
 		t.Error("noCache should be false by default")
 	}
+	if !p.resume {
+		t.Error("resume should be true by default")
+	}
 }
 
 func TestResolveSaveParams_ParallelismFromConfig(t *testing.T) {
@@ -168,6 +171,44 @@ func TestResolveSaveParams_RetryClamp(t *testing.T) {
 	}
 	if p.retry != 30 {
 		t.Errorf("retry = %d, want 30 (clamped)", p.retry)
+	}
+}
+
+func TestResolveSaveParams_ResumeDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cmd := &cobra.Command{}
+
+	p, err := resolveSaveParams(cmd, cfg, "myimg:latest")
+	if err != nil {
+		t.Fatalf("resolveSaveParams error = %v", err)
+	}
+	if !p.resume {
+		t.Error("resume should be true by default")
+	}
+}
+
+func TestResolveSaveParams_NoResume(t *testing.T) {
+	defer saveGlobals()()
+	noResume = true
+
+	cfg := config.DefaultConfig()
+	cmd := &cobra.Command{}
+
+	p, err := resolveSaveParams(cmd, cfg, "myimg:latest")
+	if err != nil {
+		t.Fatalf("resolveSaveParams error = %v", err)
+	}
+	if p.resume {
+		t.Error("resume should be false with --no-resume")
+	}
+}
+
+func TestSaveCmdResumeFlagRemoved(t *testing.T) {
+	if saveCmd.Flags().Lookup("resume") != nil {
+		t.Error("--resume flag should be removed (resume is always on)")
+	}
+	if saveCmd.Flags().Lookup("no-resume") == nil {
+		t.Error("--no-resume flag should exist")
 	}
 }
 
