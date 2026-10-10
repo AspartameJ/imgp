@@ -75,7 +75,7 @@ flowchart TD
     C --> E{Cache hit?}
     E -- Yes --> F[Use cache ✓]
     E -- No --> D
-    D --> G{--resume and partial file?}
+    D --> G{partial file and not --no-resume?}
     G -- Yes --> H[offset = existing bytes]
     G -- No --> I[offset = 0, remove partial]
     H --> J[HTTP Range request bytes=offset-]
@@ -134,7 +134,7 @@ flowchart TD
 | `--insecure` | bool | `false` | Skip TLS verify |
 | `-P, --parallel` | int | `4` | Parallel downloads |
 | `--no-cache` | bool | `false` | Ignore cache |
-| `--resume` | bool | `false` | Resume interrupted layers via HTTP Range requests |
+| `--no-resume` | bool | `false` | Disable resume; discard partial layers and re-download from scratch |
 | `-z, --gzip` | bool | `false` | Gzip-compress output |
 | `--cache-dir` | string | OS default | Cache directory |
 | `--timeout` | int | `0`(unlimited) | Overall timeout (minutes) |
@@ -194,10 +194,11 @@ Custom: `imgp config set mirror-map "docker.io=my-mirror.com"` (separate multipl
 
 Fully downloaded layers are cached and reused on re-run. `--no-cache` forces re-download. 4xx errors are NOT retried.
 
-Incomplete layers are re-downloaded by default; add `--resume` to continue them via HTTP Range requests:
+Incomplete layers are **resumed automatically** — just re-run the same command after an interruption (stderr shows `pull: resuming … from byte N`). Add `--no-resume` to discard partial downloads and force a full re-download:
 
 ```bash
-imgp save large-image:latest --resume -o large.tar
+imgp save large-image:latest -o large.tar               # re-run resumes automatically
+imgp save large-image:latest --no-resume -o large.tar   # force full re-download
 ```
 
 ### What platforms are supported?

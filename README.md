@@ -75,7 +75,7 @@ flowchart TD
     C --> E{缓存命中?}
     E -- 是 --> F[使用缓存 ✓]
     E -- 否 --> D
-    D --> G{--resume 且有部分文件?}
+    D --> G{有部分文件且未 --no-resume?}
     G -- 是 --> H[offset = 已有字节数]
     G -- 否 --> I[offset = 0, 删除部分文件]
     H --> J[HTTP Range 请求 bytes=offset-]
@@ -134,7 +134,7 @@ flowchart TD
 | `--insecure` | bool | `false` | 跳过 TLS 验证 |
 | `-P, --parallel` | int | `4` | 并行下载数 |
 | `--no-cache` | bool | `false` | 忽略缓存 |
-| `--resume` | bool | `false` | 断点续传（HTTP Range 请求续传中断的 layer） |
+| `--no-resume` | bool | `false` | 关闭断点续传，删除部分文件全量重下 |
 | `-z, --gzip` | bool | `false` | gzip 压缩输出 |
 | `--cache-dir` | string | OS 默认 | 缓存目录 |
 | `--timeout` | int | `0`(不限) | 整体超时（分钟） |
@@ -194,10 +194,11 @@ imgp cache clear           # 清空缓存
 
 已完整下载的 layer 自动缓存，重跑即复用。`--no-cache` 强制重下。404/401/403 等错误不会重试。
 
-未完成的 layer 默认重下；加 `--resume` 可基于已下载部分通过 HTTP Range 请求断点续传：
+未完成的 layer **默认自动断点续传**，中断后直接重跑即可（stderr 有 `pull: resuming … from byte N` 提示）。加 `--no-resume` 可丢弃已下载部分、强制全量重下：
 
 ```bash
-imgp save large-image:latest --resume -o large.tar
+imgp save large-image:latest -o large.tar          # 中断后重跑，自动续传
+imgp save large-image:latest --no-resume -o large.tar  # 强制全量重下
 ```
 
 ### 支持哪些平台？

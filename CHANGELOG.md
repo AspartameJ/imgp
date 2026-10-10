@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.2.3 (2026-10-10)
+
+### Changed
+- **断点续传默认开启** — 不加任何标志，中断后直接重跑即可从断点继续（stderr 有 `pull: resuming … from byte N` 提示）
+- **BREAKING: `--resume` 标志移除** — 旧命令带 `--resume` 会报 `unknown flag`，去掉即可
+
+### Added
+- **`--no-resume` 标志** — 关闭断点续传，删除部分文件全量重下
+- **shell 补全增强** — `config set` 的 key 参数、`--platform` 取值补全（子命令/标志名补全由 cobra 自带）
+
 ## v2.2.2 (2026-10-03)
 
 ### Added

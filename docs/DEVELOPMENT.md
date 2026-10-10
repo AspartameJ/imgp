@@ -221,9 +221,9 @@ layer 并行下载
 //   2. 结束后输出最终 tar 路径
 ```
 
-### 4.5 断点续传（`--resume`）
+### 4.5 断点续传（默认开启）
 
-默认关闭。开启后，未完成的 layer 通过 HTTP Range 请求从断点继续下载。
+默认开启（v2.2.3 起，`--no-resume` 可关闭）。开启时，未完成的 layer 通过 HTTP Range 请求从断点继续下载。
 
 ```
 LayerTask.OpenLayer(ctx, offset)     # internal/puller/puller.go
