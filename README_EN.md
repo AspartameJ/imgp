@@ -211,12 +211,6 @@ Default mirrors are pre-configured (see table above). Custom: `imgp config set m
 
 ---
 
-## Download
-
-Pre-built binaries for each release are available on the [Releases page](https://gitcode.com/DonaldTom/imgp/releases), covering `linux/windows/darwin × amd64/arm64`, with a `SHA256SUMS.txt` checksum file. Releases are built automatically when a version tag is pushed (see docs/DEVELOPMENT.md §8).
-
----
-
 ## Build from Source
 
 Requires Go 1.22+.

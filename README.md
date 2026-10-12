@@ -211,12 +211,6 @@ imgp save large-image:latest --no-resume -o large.tar  # 强制全量重下
 
 ---
 
-## 下载
-
-各版本预编译二进制在 [Release 页](https://gitcode.com/DonaldTom/imgp/releases) 下载，覆盖 `linux/windows/darwin × amd64/arm64`，并附 `SHA256SUMS.txt` 校验和。推 tag 即自动构建发布（见 docs/DEVELOPMENT.md §8）。
-
----
-
 ## 从源码编译
 
 需要 Go 1.22+。
