@@ -371,10 +371,10 @@ imgp save hello-world:latest -o test3.tar --no-cache
 ### 8.1 CI（.gitcode/workflows/ci.yml）
 
 - **触发**: push / pull_request → `main`
-- **runner**: `euleros-2.10.1`（GitCode 托管），`setup-go@0.0.1` 安装 Go 1.22
+- **runner**: `ubuntu-latest`（GitCode 托管），`setup-go` 安装 Go 1.22；shell 默认 `bash -e`
 - **job `lint`**: `gofmt -l .` 零容忍 → `go vet` → `golangci-lint run`（配置见 `.golangci.yml`）
 - **job `test`**: `go test -race -count=1 ./...`
-- 注意 GitCode 检出目录为 `repo_workspace`，每个 run 步骤需 `cd repo_workspace`
+- 注意 runner 检出目录即工作目录，无需 `cd`；`uses:` 写裸 action 名（`checkout`/`setup-go`，市场无 `@0.0.1` 版本）
 
 ### 8.2 发布流程（.gitcode/workflows/release.yml）
 

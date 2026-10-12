@@ -29,10 +29,13 @@ jobs:
 
       - name: Resolve tag
         run: |
-          cd repo_workspace
           TAG="${{ inputs.tag }}"
           if [ -z "$TAG" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then TAG="$GITHUB_REF_NAME"; fi
-          if [ -z "$TAG" ]; then TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"; fi
+          if [ -z "$TAG" ] && [ -n "${CI_COMMIT_REF_NAME:-}" ]; then TAG="$CI_COMMIT_REF_NAME"; fi
+          if [ -z "$TAG" ]; then
+            git fetch --tags --force origin >/dev/null 2>&1 || true
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
           if [ -z "$TAG" ]; then TAG="v0.0.0-dev"; fi
           printf '%s' "$TAG" > .release_tag
           echo "Resolved tag: $TAG"
@@ -40,7 +43,6 @@ jobs:
       - name: Build all platforms
         run: |
           set -e
-          cd repo_workspace
           VERSION="$(sed 's/^v//' .release_tag)"
           mkdir -p dist
           for pair in linux/amd64 linux/arm64 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64; do
@@ -62,7 +64,6 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -e
-          cd repo_workspace
           if [ "$DRY_RUN" = "true" ]; then
             echo "dry run, skipping publish"
             exit 0
