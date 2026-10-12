@@ -17,11 +17,13 @@ on:
 
 jobs:
   release:
-    name: build + publish
-    runs-on: euleros-2.10.1
+    name: build and publish
+    runs-on: ubuntu-latest
     steps:
-      - uses: checkout-action@0.0.1
-      - uses: setup-go@0.0.1
+      - name: Checkout
+        uses: checkout
+      - name: Setup Go
+        uses: setup-go
         with:
           go-version: '1.22'
 
@@ -55,12 +57,16 @@ jobs:
           cd dist && sha256sum imgp_* > SHA256SUMS.txt && cat SHA256SUMS.txt
 
       - name: Publish to Releases
-        if: github.event_name == 'push' || inputs.dry_run == false
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -e
           cd repo_workspace
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "dry run, skipping publish"
+            exit 0
+          fi
           TAG="$(cat .release_tag)"
           OWNER=DonaldTom
           REPO=imgp

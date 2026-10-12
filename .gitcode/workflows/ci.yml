@@ -8,11 +8,13 @@ on:
 
 jobs:
   lint:
-    name: gofmt + vet + golangci-lint
-    runs-on: euleros-2.10.1
+    name: gofmt, vet and golangci-lint
+    runs-on: ubuntu-latest
     steps:
-      - uses: checkout-action@0.0.1
-      - uses: setup-go@0.0.1
+      - name: Checkout
+        uses: checkout
+      - name: Setup Go
+        uses: setup-go
         with:
           go-version: '1.22'
       - name: gofmt
@@ -23,11 +25,13 @@ jobs:
         run: cd repo_workspace && go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1 run
 
   test:
-    name: go test -race
-    runs-on: euleros-2.10.1
+    name: go test race
+    runs-on: ubuntu-latest
     steps:
-      - uses: checkout-action@0.0.1
-      - uses: setup-go@0.0.1
+      - name: Checkout
+        uses: checkout
+      - name: Setup Go
+        uses: setup-go
         with:
           go-version: '1.22'
       - name: go test
