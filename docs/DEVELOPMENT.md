@@ -269,7 +269,7 @@ internal/version/version.go:
   var Version = "dev"         // 默认值，未用 ldflags 时显示 "dev"
 ```
 
-`dev` 是默认值。正式发布必须用 `build.ps1 -Version X.Y.Z` 或 `make VERSION=X.Y.Z`。
+`dev` 是默认值。本地验证用 `build.ps1 -Version X.Y.Z` 或 `make VERSION=X.Y.Z`；正式发布由 Release 流水线从 tag 自动注入版本号（见 §8.2）。
 
 ---
 
@@ -366,29 +366,33 @@ imgp save hello-world:latest -o test3.tar --no-cache
 
 ## 8. CI/CD 与发布流程
 
-### 8.1 CI（.github/workflows/ci.yml）
+基于 GitCode Pipeline（`.gitcode/workflows/`），推送自动触发。
 
-- 平台: `windows-latest`
-- 步骤: checkout → setup Go → go build → go test → go vet → gofmt 检查
+### 8.1 CI（.gitcode/workflows/ci.yml）
 
-### 8.2 发布流程
+- **触发**: push / pull_request → `main`
+- **runner**: `euleros-2.10.1`（GitCode 托管），`setup-go@0.0.1` 安装 Go 1.22
+- **job `lint`**: `gofmt -l .` 零容忍 → `go vet` → `golangci-lint run`（配置见 `.golangci.yml`）
+- **job `test`**: `go test -race -count=1 ./...`
+- 注意 GitCode 检出目录为 `repo_workspace`，每个 run 步骤需 `cd repo_workspace`
+
+### 8.2 发布流程（.gitcode/workflows/release.yml）
 
 ```powershell
-# 1. 更新版本号
-.\build.ps1 -Version "2.2.0"
-
-# 2. 运行全部测试
+# 1. 全部测试通过
 go test -race ./...
 
-# 3. 提交并打 tag
-git add -A
-git commit -m "feat: ..."
-git tag v2.2.0
-git push && git push origin v2.2.0
-
-# 4. 在 GitHub/GitCode Releases 页面创建 Release
-#    上传 bin\imgp.exe 作为附件
+# 2. 提交并打 tag 推送，流水线自动完成：
+#    - 6 平台交叉编译（linux/windows/darwin × amd64/arm64，CGO_ENABLED=0）
+#    - 版本号取自 tag（-ldflags 注入），生成 SHA256SUMS.txt
+#    - 创建 GitCode Release 并上传全部附件
+git tag v2.2.4
+git push && git push origin v2.2.4
 ```
+
+- **Secrets**: 项目 → 流水线 → Secrets 添加 `GITCODE_TOKEN`（带 release 权限的访问令牌），publish 步骤依赖它
+- **手动触发**: Pipeline 页 workflow_dispatch，可传 `tag`（空 = 最新 tag）；`dry_run` 只编译不发布，用于验证
+- **本地等价构建**: `go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=X.Y.Z"`（见 §5.1）
 
 ### 8.3 兼容性注意事项
 
