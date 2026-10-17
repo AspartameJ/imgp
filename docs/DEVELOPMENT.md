@@ -364,14 +364,9 @@ imgp save hello-world:latest -o test3.tar --no-cache
 
 ---
 
-## 8. CI/CD 与发布流程
+## 8. 发布流程
 
-### 8.1 CI（.github/workflows/ci.yml）
-
-- 平台: `windows-latest`
-- 步骤: checkout → setup Go → go build → go test → go vet → gofmt 检查
-
-### 8.2 发布流程
+### 8.1 发布流程
 
 ```powershell
 # 1. 更新版本号
@@ -390,7 +385,7 @@ git push && git push origin v2.2.0
 #    上传 bin\imgp.exe 作为附件
 ```
 
-### 8.3 兼容性注意事项
+### 8.2 兼容性注意事项
 
 - `go-containerregistry` 版本更新可能影响 registry 协议兼容性
 - Windows ANSI 支持依赖 `terminal_windows.go` 中的控制台模式设置
