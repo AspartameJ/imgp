@@ -127,15 +127,12 @@ func TestParsePlatform(t *testing.T) {
 	}{
 		{"linux/amd64", "linux"},
 		{"linux/arm64/v8", "linux"},
-		{"arm64", "linux"},
-		{"", ""},
+		{"windows/amd64", "windows"},
 	}
 	for _, tt := range tests {
-		p := parsePlatform(tt.input)
-		if tt.want == "" {
-			if p != nil {
-				t.Errorf("parsePlatform(%q) = %+v, want nil", tt.input, p)
-			}
+		p, err := parsePlatform(tt.input)
+		if err != nil {
+			t.Errorf("parsePlatform(%q) error = %v", tt.input, err)
 			continue
 		}
 		if p == nil {
@@ -146,13 +143,18 @@ func TestParsePlatform(t *testing.T) {
 			t.Errorf("parsePlatform(%q).OS = %q, want %q", tt.input, p.OS, tt.want)
 		}
 	}
+	p, err := parsePlatform("")
+	if err != nil || p != nil {
+		t.Errorf(`parsePlatform("") = %+v, %v; want nil, nil`, p, err)
+	}
 }
 
 func TestParsePlatform_Invalid(t *testing.T) {
-	// Input validation is handled by cmd.resolvePlatform.
-	// parsePlatform is lenient and returns a best-effort parse.
-	_ = parsePlatform("/linux")
-	_ = parsePlatform("linux//arm64")
+	for _, in := range []string{"arm64", "/linux", "linux//arm64", "linux/amd64/extra/more"} {
+		if _, err := parsePlatform(in); err == nil {
+			t.Errorf("parsePlatform(%q) = nil error, want error", in)
+		}
+	}
 }
 
 func TestAuthenticator_Credentials(t *testing.T) {
@@ -590,7 +592,7 @@ func TestNewLayerFetcher(t *testing.T) {
 	cfg.MirrorMap = nil
 	client := NewClient(cfg)
 
-	fetcher := client.NewLayerFetcher(ref)
+	fetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 	if fetcher == nil {
 		t.Fatal("NewLayerFetcher returned nil")
 	}
@@ -622,7 +624,7 @@ func TestNewLayerFetcher_Range(t *testing.T) {
 	cfg.MirrorMap = nil
 	client := NewClient(cfg)
 
-	fetcher := client.NewLayerFetcher(ref)
+	fetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 
 	layers, _ := img.Layers()
 	d, _ := layers[0].Digest()
@@ -674,7 +676,7 @@ func TestNewLayerFetcher_ServerIgnoresRange(t *testing.T) {
 	cfg.MirrorMap = nil
 	client := NewClient(cfg)
 
-	fetcher := client.NewLayerFetcher(ref)
+	fetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 	const offset = 10
 	rc, err := fetcher(context.Background(), strings.Repeat("b", 64), offset)
 	if err != nil {
@@ -712,7 +714,7 @@ func TestNewLayerFetcher_ServerError(t *testing.T) {
 	cfg.MirrorMap = nil
 	client := NewClient(cfg)
 
-	fetcher := client.NewLayerFetcher(ref)
+	fetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 	_, err = fetcher(context.Background(), strings.Repeat("b", 64), 0)
 	if err == nil {
 		t.Fatal("expected error for 502 response")
@@ -759,7 +761,7 @@ func TestNewLayerFetcher_BearerAuth(t *testing.T) {
 	cfg.MirrorMap = nil
 	client := NewClient(cfg)
 
-	fetcher := client.NewLayerFetcher(ref)
+	fetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 	rc, err := fetcher(context.Background(), strings.Repeat("a", 64), 0)
 	if err != nil {
 		t.Fatalf("fetcher error (auth not handled): %v", err)
@@ -768,6 +770,69 @@ func TestNewLayerFetcher_BearerAuth(t *testing.T) {
 	got, _ := io.ReadAll(rc)
 	if !bytes.Equal(got, blobData) {
 		t.Errorf("got %q, want %q", got, blobData)
+	}
+}
+
+func TestAuthenticatorFor_CLICredsScopedToOrigin(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	c := NewClient(cfg).WithAuth("cli_user", "cli_pass")
+	orig, _ := name.NewRegistry("docker.io")
+	mirror, _ := name.NewRegistry("docker.m.daocloud.io")
+
+	if auth := c.authenticatorFor(orig, orig); auth == authn.Anonymous {
+		t.Error("origin registry should use CLI credentials")
+	}
+	if auth := c.authenticatorFor(mirror, orig); auth != authn.Anonymous {
+		t.Error("mirror registry must not receive CLI credentials")
+	}
+}
+
+func TestNewLayerFetcher_OrigAuthFallback(t *testing.T) {
+	blobData := []byte("private layer payload")
+	var gotUser, gotPass string
+
+	mirrorMux := http.NewServeMux()
+	mirrorMux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != "cli_user" || p != "cli_pass" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		gotUser, gotPass = u, p
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(blobData)
+	})
+	mirror := httptest.NewServer(mirrorMux)
+	defer mirror.Close()
+
+	port := strings.TrimPrefix(mirror.URL, "http://127.0.0.1:")
+	mirrorRef, err := name.ParseReference(fmt.Sprintf("127.0.0.1:%s/testrepo:latest", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	origReg, err := name.NewRegistry("private.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg).WithAuth("cli_user", "cli_pass")
+
+	fetcher := client.NewLayerFetcher(mirrorRef, origReg)
+	rc, err := fetcher(context.Background(), strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatalf("fetcher error (origAuth fallback not applied): %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	if !bytes.Equal(got, blobData) {
+		t.Errorf("got %q, want %q", got, blobData)
+	}
+	if gotUser != "cli_user" || gotPass != "cli_pass" {
+		t.Errorf("mirror got %q/%q, want cli_user/cli_pass (origAuth fallback)", gotUser, gotPass)
 	}
 }
 

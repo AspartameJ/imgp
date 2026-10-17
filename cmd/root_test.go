@@ -415,11 +415,29 @@ func TestResolvePlatform(t *testing.T) {
 	})
 
 	t.Run("unknown arch with suggestion", func(t *testing.T) {
-		_, err := resolvePlatform("linux/amd64_") // close to amd64
+		_, err := resolvePlatform("linux/aarch64") // aarch64 -> arm64
 		if err == nil {
 			t.Fatal("expected error for unknown arch")
 		}
+		if !strings.Contains(err.Error(), "arm64") {
+			t.Errorf("error should suggest arm64, got: %v", err)
+		}
 	})
+}
+
+func TestPlatformSuggestions_CoversAllArchs(t *testing.T) {
+	set := map[string]bool{}
+	for _, s := range platformSuggestions() {
+		if i := strings.IndexByte(s, '\t'); i >= 0 {
+			s = s[:i]
+		}
+		set[s] = true
+	}
+	for _, a := range util.Archs() {
+		if !set["linux/"+a] {
+			t.Errorf("platform suggestions missing linux/%s", a)
+		}
+	}
 }
 
 func TestResolvePassword(t *testing.T) {
@@ -609,7 +627,7 @@ func TestPullLayers_ErrorReport(t *testing.T) {
 		parallelism: 1, retry: 0, noCache: true,
 		layerTimeout: 1, quiet: true,
 	}
-	err = pullLayers(ctx, baseDir, p, fetchedImg, ref, client)
+	err = pullLayers(ctx, baseDir, p, fetchedImg, ref, client, ref.Context().Registry)
 	if err == nil {
 		t.Fatal("expected pullLayers error after server shutdown")
 	}

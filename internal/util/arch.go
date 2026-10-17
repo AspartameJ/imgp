@@ -78,13 +78,27 @@ func IsConnectivityError(err error) bool {
 	return containsAny(err.Error(), networkSubstrings)
 }
 
+// Archs returns all valid CPU architectures in a stable order. It is the
+// single source of truth for architecture validation and shell completion.
+func Archs() []string {
+	return []string{
+		"386", "amd64", "arm", "arm64", "loong64",
+		"mips", "mips64", "mips64le", "mipsle", "ppc64",
+		"ppc64le", "riscv64", "s390x", "wasm",
+	}
+}
+
+// ArchListString returns the valid architectures as a comma-separated list.
+func ArchListString() string {
+	return strings.Join(Archs(), ", ")
+}
+
 // IsValidArch checks if arch is a known CPU architecture.
 func IsValidArch(arch string) bool {
-	switch arch {
-	case "386", "amd64", "arm", "arm64", "loong64", "mips",
-		"mips64", "mips64le", "mipsle", "ppc64", "ppc64le",
-		"riscv64", "s390x", "wasm":
-		return true
+	for _, a := range Archs() {
+		if arch == a {
+			return true
+		}
 	}
 	return false
 }

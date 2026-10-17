@@ -6,7 +6,9 @@
 
 # Scripts
 *.ps1 text eol=crlf
-*.sh text eol=lf
+
+# Build files
+Makefile text eol=lf
 
 # Markdown
 *.md text eol=lf

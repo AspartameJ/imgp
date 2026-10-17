@@ -22,9 +22,9 @@ imgp save hello-world:latest
 # 指定平台
 imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
 
-# 私有仓库
+# 私有仓库（--password-env 需配合 --username）
 export IMG_REGISTRY_PASSWORD=your_password
-imgp save private.registry.com/myapp:latest --username user
+imgp save private.registry.com/myapp:latest --username user --password-env IMG_REGISTRY_PASSWORD
 
 # 多个镜像（自动命名）
 imgp save nginx:latest redis:latest alpine:latest
@@ -133,7 +133,7 @@ flowchart TD
 | `--password-env` | string | — | 存放密码的环境变量名 |
 | `--insecure` | bool | `false` | 跳过 TLS 验证 |
 | `-P, --parallel` | int | `4` | 并行下载数 |
-| `--no-cache` | bool | `false` | 忽略缓存 |
+| `--no-cache` | bool | `false` | 忽略缓存，强制重新下载（含未完成的部分文件） |
 | `--no-resume` | bool | `false` | 关闭断点续传，删除部分文件全量重下 |
 | `-z, --gzip` | bool | `false` | gzip 压缩输出 |
 | `--cache-dir` | string | OS 默认 | 缓存目录 |
@@ -142,11 +142,14 @@ flowchart TD
 | `--retry` | int | `2` | 重试次数（`0`=不重试） |
 | `-q, --quiet` | bool | `false` | 只输出路径 |
 
+> `--password` / `--password-env` 仅在同时提供 `--username` 时生效；只给密码会被忽略（stderr 有 WARN）。凭据只会发送到镜像名对应的原始 registry，不会发给第三方加速站。
+
 ### 缓存管理
 
 ```bash
 imgp cache info            # 查看缓存
 imgp cache clear           # 清空缓存
+imgp cache info --cache-dir D:\imgp-cache   # 指定缓存目录
 ```
 
 默认路径：Windows `%LOCALAPPDATA%\imgp\cache`，Linux `~/.cache/imgp`，macOS `~/Library/Caches/imgp`。
@@ -163,7 +166,7 @@ imgp cache clear           # 清空缓存
 }
 ```
 
-可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。
+可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。完整字段示例见 [imgp.json.example](imgp.json.example)。
 
 ---
 
@@ -222,7 +225,7 @@ go build -o imgp .
 注入版本号：
 
 ```bash
-go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=2.2.1" -o imgp .
+go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=x.y.z" -o imgp .
 ```
 
 交叉编译：`GOOS=linux GOARCH=amd64 go build -o imgp .`（darwin/windows 同理）。Windows 可用 `build.ps1 -Version x.y.z`。

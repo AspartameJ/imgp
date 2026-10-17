@@ -56,11 +56,12 @@ func cacheClear(cfg *config.Config) (removed int, freed int64) {
 			if !strings.HasSuffix(e.Name(), ".gz") {
 				continue
 			}
+			fi, infoErr := e.Info()
 			if err := os.Remove(filepath.Join(cd, e.Name())); err != nil && !os.IsNotExist(err) {
 				fmt.Fprintf(os.Stderr, "cache clear: remove %s: %v\n", e.Name(), err)
 				continue
 			}
-			if fi, err := e.Info(); err == nil {
+			if infoErr == nil {
 				freed += fi.Size()
 			}
 			removed++

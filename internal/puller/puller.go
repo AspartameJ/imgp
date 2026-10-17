@@ -101,6 +101,13 @@ func removeCacheFile(path string) {
 	}
 }
 
+// removeCacheArtifacts removes a cached layer together with its .verified
+// marker, so invalid layers never leave an orphan marker behind.
+func removeCacheArtifacts(cacheFile string) {
+	removeCacheFile(cacheFile)
+	removeCacheFile(cacheFile + ".verified")
+}
+
 // fileDigestMatches reports whether the sha256 of the file at path equals the
 // expected digest hex (with or without the "sha256:" prefix).
 func fileDigestMatches(path, wantHex string) bool {
@@ -130,16 +137,21 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 		return false
 	}
 	if fi.Size() != t.Size {
+		// Partial or oversized file: any existing marker is stale. Keep the
+		// file itself (a later attempt may resume from it) but drop the marker.
+		removeCacheFile(cacheFile + ".verified")
 		return false
 	}
 	f, e := os.Open(cacheFile)
 	if e != nil {
+		removeCacheFile(cacheFile + ".verified")
 		return false
 	}
 	var magic [2]byte
 	_, readErr := io.ReadFull(f, magic[:])
 	f.Close()
 	if readErr != nil || magic[0] != 0x1f || magic[1] != 0x8b {
+		removeCacheArtifacts(cacheFile)
 		return false
 	}
 
@@ -200,8 +212,9 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 	defer cancel()
 
 	// Determine resume offset from an existing partial cache file.
+	// --no-cache forces a full re-download, so partials are ignored.
 	var offset int64
-	if p.resume {
+	if p.resume && !p.noCache {
 		if fi, err := os.Stat(cacheFile); err == nil && fi.Size() > 0 && fi.Size() < t.Size {
 			offset = fi.Size()
 		}
@@ -295,9 +308,10 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 
 // preservePartial reports whether an existing partial cache file should be kept
 // so a later attempt can resume from it via HTTP Range. It is true only when
-// resume is enabled and the file is smaller than the expected total size.
+// resume is enabled, caching is not disabled, and the file is non-empty and
+// smaller than the expected total size.
 func (p *Puller) preservePartial(cacheFile string, total int64) bool {
-	if !p.resume {
+	if !p.resume || p.noCache {
 		return false
 	}
 	fi, err := os.Stat(cacheFile)
@@ -332,6 +346,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			})
 			return
 		}
+		removeCacheFile(cacheFile + ".verified")
 	}
 
 	if !sendEvent(ctx, ch, PullEvent{
@@ -351,9 +366,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 				return
 			}
 			if !p.preservePartial(cacheFile, t.Size) {
-				if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-					fmt.Fprintf(os.Stderr, "pull: remove before retry: %v\n", err)
-				}
+				removeCacheArtifacts(cacheFile)
 			}
 			if !sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
@@ -373,9 +386,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 		}
 		lastErr = err
 		if !p.preservePartial(cacheFile, t.Size) {
-			if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "pull: remove after failed attempt: %v\n", err)
-			}
+			removeCacheArtifacts(cacheFile)
 		}
 	}
 

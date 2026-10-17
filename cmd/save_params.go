@@ -50,7 +50,7 @@ func resolvePlatform(input string) (string, error) {
 		if s := util.ArchSuggestion(parts[1]); s != "" {
 			return "", fmt.Errorf("unknown architecture %q in platform %q, did you mean %q?", parts[1], input, s)
 		}
-		return "", fmt.Errorf("unknown architecture %q in platform %q, valid values: 386, amd64, arm, arm64, loong64, mips, mips64, mips64le, mipsle, ppc64, ppc64le, riscv64, s390x, wasm", parts[1], input)
+		return "", fmt.Errorf("unknown architecture %q in platform %q, valid values: %s", parts[1], input, util.ArchListString())
 	}
 	return input, nil
 }

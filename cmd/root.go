@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gitcode.com/DonaldTom/imgp/internal/util"
 	"gitcode.com/DonaldTom/imgp/internal/version"
 )
 
@@ -49,7 +50,7 @@ Multiple images can be specified for batch download.
 Examples:
   imgp save hello-world:latest -o hello-world.tar
   imgp save hello-world:latest --platform linux/arm64 -o hello-world-arm64.tar
-  imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env
+  imgp save myuser/myapp:latest -o myapp.tar --username myuser --password-env IMG_REGISTRY_PASSWORD
   imgp save registry.k8s.io/kube-apiserver:v1.34.9 registry.k8s.io/kube-scheduler:v1.34.9`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSave,
@@ -89,15 +90,20 @@ func init() {
 	saveCmd.Flags().IntVar(&retryCount, "retry", 2, "Number of retries on network errors (0 = no retry)")
 
 	_ = saveCmd.RegisterFlagCompletionFunc("platform", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{
-			"linux/amd64\tDefault platform",
-			"linux/arm64",
-			"linux/arm64/v8",
-			"linux/386",
-			"windows/amd64",
-			"windows/arm64",
-			"darwin/amd64",
-			"darwin/arm64",
-		}, cobra.ShellCompDirectiveNoFileComp
+		return platformSuggestions(), cobra.ShellCompDirectiveNoFileComp
 	})
+}
+
+// platformSuggestions lists common os/arch combinations for shell completion.
+// Architecture names come from util.Archs so completion cannot drift from
+// validation.
+func platformSuggestions() []string {
+	s := []string{"linux/amd64\tDefault platform", "linux/arm64/v8"}
+	for _, a := range util.Archs() {
+		if a == "amd64" {
+			continue
+		}
+		s = append(s, "linux/"+a)
+	}
+	return append(s, "windows/amd64", "windows/arm64", "darwin/amd64", "darwin/arm64")
 }

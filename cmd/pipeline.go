@@ -58,8 +58,8 @@ func fetchManifest(ctx context.Context, client *registry.Client, image, targetPl
 	return &manifestResult{img: img, ref: ref, origRef: origRef}, nil
 }
 
-func pullLayers(ctx context.Context, cd string, p saveParams, img v1.Image, ref name.Reference, client *registry.Client) error {
-	layerFetcher := client.NewLayerFetcher(ref)
+func pullLayers(ctx context.Context, cd string, p saveParams, img v1.Image, ref name.Reference, client *registry.Client, origReg name.Registry) error {
+	layerFetcher := client.NewLayerFetcher(ref, origReg)
 
 	imgLayers, err := img.Layers()
 	if err != nil {

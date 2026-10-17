@@ -1,22 +1,25 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
+    - bodyclose
     - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
     - goconst
     - gosec
+    - govet
+    - ineffassign
     - noctx
-    - bodyclose
     - prealloc
+    - staticcheck
+    - unused
 
-issues:
-  exclude-use-default: false
-  exclude:
-    - "G104"  # Allow unchecked errors in defer (common Go pattern)
-    - "G307"  # Allow unchecked errors when closing via defer
+  exclusions:
+    rules:
+      # Allow unchecked errors in defer (common Go pattern).
+      - linters: [gosec]
+        text: "G104"
+      - linters: [gosec]
+        text: "G307"

@@ -281,6 +281,46 @@ func TestPull_ResumeDisabled(t *testing.T) {
 	}
 }
 
+func TestPull_NoCache_IgnoresPartial(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir).WithNoCache(true).WithResume(true)
+
+	msg := "content re-downloaded in full"
+	payload := gzipBytes(t, msg)
+	digest := digestOf(payload)
+
+	// A partial file must be discarded under --no-cache, not resumed.
+	if err := os.WriteFile(filepath.Join(dir, digest+".gz"), payload[:len(payload)/2], 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotOffset int64 = -1
+	tasks := []LayerTask{{
+		Index:     0,
+		DigestHex: digest,
+		Size:      int64(len(payload)),
+		OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+			gotOffset = offset
+			return io.NopCloser(bytes.NewReader(payload[offset:])), nil
+		},
+	}}
+
+	ctx := context.Background()
+	eventCh, err := p.Pull(ctx, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := collectEvents(t, eventCh)
+	assertStatus(t, events, len(events)-1, "done")
+
+	if gotOffset != 0 {
+		t.Errorf("OpenLayer offset = %d, want 0 (--no-cache must force a full download)", gotOffset)
+	}
+	if got := mustDecompress(t, filepath.Join(dir, digest+".gz")); string(got) != msg {
+		t.Errorf("cached content = %q, want %q", got, msg)
+	}
+}
+
 func TestPull_DownloadFailure(t *testing.T) {
 	dir := t.TempDir()
 	p := NewPuller(dir).WithRetry(0)
@@ -646,12 +686,49 @@ func TestCheckCache_BadGzipHeader(t *testing.T) {
 	// File with matching size but invalid gzip header: the magic check must reject it.
 	bad := []byte("not gzip data")
 	os.WriteFile(cacheFile, bad, 0644)
+	marker := cacheFile + ".verified"
+	os.WriteFile(marker, nil, 0644)
 
 	ch := make(chan PullEvent, 1)
 	task := LayerTask{Index: 0, DigestHex: digest, Size: int64(len(bad))}
 	ok := p.checkCache(context.Background(), ch, task, cacheFile)
 	if ok {
 		t.Error("expected false for corrupted cache file")
+	}
+	if _, err := os.Stat(cacheFile); !os.IsNotExist(err) {
+		t.Error("corrupt cache file should be removed")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Error("marker must not be left orphaned after removing the corrupt file")
+	}
+}
+
+func TestCheckCache_SizeMismatch_ClearsOrphanMarker(t *testing.T) {
+	dir := t.TempDir()
+	p := NewPuller(dir)
+
+	payload := gzipBytes(t, "partial layer")
+	digest := digestOf(payload)
+	cacheFile := filepath.Join(dir, digest+".gz")
+	// Partial file (smaller than the layer) with a stale marker.
+	if err := os.WriteFile(cacheFile, payload[:len(payload)/2], 0644); err != nil {
+		t.Fatal(err)
+	}
+	marker := cacheFile + ".verified"
+	if err := os.WriteFile(marker, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan PullEvent, 1)
+	task := LayerTask{Index: 0, DigestHex: digest, Size: int64(len(payload))}
+	if p.checkCache(context.Background(), ch, task, cacheFile) {
+		t.Fatal("checkCache = true, want false for size mismatch")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Error("stale marker should be removed on size mismatch")
+	}
+	if _, err := os.Stat(cacheFile); err != nil {
+		t.Error("partial file should be kept so a later attempt can resume")
 	}
 }
 

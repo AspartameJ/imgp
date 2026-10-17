@@ -101,7 +101,7 @@ func verifyGzip(cacheFile string) error {
 	return nil
 }
 
-func OpenCachedLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, error) {
+func openCachedLayer(v1Layer v1.Layer, cacheFile string) (partial.CompressedLayer, error) {
 	digest, err := v1Layer.Digest()
 	if err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func buildCachedImage(img v1.Image, cachePathFn func(digest string) string) (v1.
 		if err != nil {
 			return nil, fmt.Errorf("get layer digest: %w", err)
 		}
-		cl, err := OpenCachedLayer(l, cachePathFn(digest.Hex))
+		cl, err := openCachedLayer(l, cachePathFn(digest.Hex))
 		if err != nil {
 			return nil, err
 		}

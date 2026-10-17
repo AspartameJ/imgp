@@ -22,9 +22,9 @@ imgp save hello-world:latest
 # Specify platform
 imgp save nginx:latest --platform linux/arm64 -o nginx-arm64.tar
 
-# Private registry
+# Private registry (--password-env requires --username)
 export IMG_REGISTRY_PASSWORD=your_password
-imgp save private.registry.com/myapp:latest --username user
+imgp save private.registry.com/myapp:latest --username user --password-env IMG_REGISTRY_PASSWORD
 
 # Multiple images (auto-named)
 imgp save nginx:latest redis:latest alpine:latest
@@ -133,7 +133,7 @@ flowchart TD
 | `--password-env` | string | — | Env var name holding the password |
 | `--insecure` | bool | `false` | Skip TLS verify |
 | `-P, --parallel` | int | `4` | Parallel downloads |
-| `--no-cache` | bool | `false` | Ignore cache |
+| `--no-cache` | bool | `false` | Ignore cache, force re-download (including partial files) |
 | `--no-resume` | bool | `false` | Disable resume; discard partial layers and re-download from scratch |
 | `-z, --gzip` | bool | `false` | Gzip-compress output |
 | `--cache-dir` | string | OS default | Cache directory |
@@ -142,11 +142,14 @@ flowchart TD
 | `--retry` | int | `2` | Retry count (`0`=no retry) |
 | `-q, --quiet` | bool | `false` | Output path only |
 
+> `--password` / `--password-env` only take effect together with `--username`; a password alone is ignored (a WARN is printed to stderr). Credentials are only sent to the origin registry of the image, never to third-party mirrors.
+
 ### Cache
 
 ```bash
 imgp cache info            # show cache usage
 imgp cache clear           # remove all cached layers
+imgp cache info --cache-dir D:\imgp-cache   # custom cache directory
 ```
 
 Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `~/.cache/imgp`, macOS `~/Library/Caches/imgp`.
@@ -163,7 +166,7 @@ Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `~/.cache/imgp`, macOS `~/Li
 }
 ```
 
-Keys: `mirror-map`, `parallelism`, `retry`, `cache-dir`, `insecure-registries`, `layer-timeout`, `timeout`.
+Keys: `mirror-map`, `parallelism`, `retry`, `cache-dir`, `insecure-registries`, `layer-timeout`, `timeout`. See [imgp.json.example](imgp.json.example) for every field.
 
 ---
 
@@ -222,7 +225,7 @@ go build -o imgp .
 Inject version number:
 
 ```bash
-go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=2.2.1" -o imgp .
+go build -ldflags "-X gitcode.com/DonaldTom/imgp/internal/version.Version=x.y.z" -o imgp .
 ```
 
 Cross-compile: `GOOS=linux GOARCH=amd64 go build -o imgp .` (same for darwin/windows). On Windows, use `build.ps1 -Version x.y.z`.

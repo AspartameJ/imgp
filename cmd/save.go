@@ -61,6 +61,10 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return fmt.Errorf("create cache: %w", err)
 	}
 
+	if p.password != "" && username == "" {
+		fmt.Fprintln(os.Stderr, "WARN: --password/--password-env set without --username; CLI credentials are ignored. Provide --username or use config auths.")
+	}
+
 	client := registry.NewClient(cfg).WithAuth(username, p.password).WithInsecure(insecure).WithRetry(p.retry)
 
 	ctx := cmd.Context()
@@ -75,7 +79,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return err
 	}
 
-	if err := pullLayers(ctx, cd, p, mr.img, mr.ref, client); err != nil {
+	if err := pullLayers(ctx, cd, p, mr.img, mr.ref, client, mr.origRef.Context().Registry); err != nil {
 		return err
 	}
 

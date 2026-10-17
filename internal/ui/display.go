@@ -16,7 +16,6 @@ import (
 var stderr io.Writer = os.Stderr
 
 type LayerState struct {
-	Index   int
 	Digest  string
 	Total   int64
 	Current int64
@@ -96,7 +95,7 @@ func (p *ProgressDisplay) initLayerStates(tasks []puller.LayerTask) {
 	p.Layers = make([]LayerState, len(tasks))
 	p.Total = 0
 	for i, t := range tasks {
-		p.Layers[i] = LayerState{Index: t.Index, Status: "pending"}
+		p.Layers[i] = LayerState{Status: "pending"}
 		p.Total += t.Size
 	}
 }
@@ -119,11 +118,13 @@ func (p *ProgressDisplay) startEventReader(ctx context.Context, eventCh <-chan p
 					return
 				}
 				p.mu.Lock()
+				if evt.Err != nil {
+					p.HasError = true
+				}
 				if evt.Index >= 0 && evt.Index < len(p.Layers) {
 					p.Layers[evt.Index].Digest = evt.Digest
 					p.Layers[evt.Index].Total = evt.Total
 					if evt.Err != nil {
-						p.HasError = true
 						p.Layers[evt.Index].Status = "error"
 						p.Layers[evt.Index].ErrMsg = evt.Err.Error()
 					} else {
@@ -185,7 +186,7 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 		FormatBytes(s.currentBytes), FormatBytes(p.Total))
 
 	for _, ls := range p.Layers {
-		bar := RenderBar(ls.Current, ls.Total, 30)
+		bar := renderBar(ls.Current, ls.Total, 30)
 		digest := Shorten(ls.Digest, 12)
 		switch ls.Status {
 		case "cached":
@@ -320,7 +321,7 @@ func FormatBytes(b int64) string {
 	}
 }
 
-func RenderBar(current, total int64, width int) string {
+func renderBar(current, total int64, width int) string {
 	if total == 0 {
 		return strings.Repeat("░", width)
 	}

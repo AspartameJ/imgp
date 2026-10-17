@@ -1,9 +1,8 @@
 # 编译产物
 imgp.exe
+/imgp
 *.tar
-
-# 缓存
-.imgp-cache/
+*.tar.gz
 
 # 构建输出
 bin/

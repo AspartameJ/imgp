@@ -30,7 +30,7 @@ func (e *errLayer) Size() (int64, error)                 { return 0, e.err }
 func (e *errLayer) MediaType() (types.MediaType, error)  { return "", e.err }
 
 func TestOpenCachedLayer_DigestError(t *testing.T) {
-	_, err := OpenCachedLayer(&errLayer{err: io.ErrUnexpectedEOF}, "dummy.gz")
+	_, err := openCachedLayer(&errLayer{err: io.ErrUnexpectedEOF}, "dummy.gz")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -39,7 +39,7 @@ func TestOpenCachedLayer_DigestError(t *testing.T) {
 func TestOpenCachedLayer_MediaTypeError(t *testing.T) {
 	// Provide a layer that returns digest OK but fails on MediaType
 	l := &partialDigestLayer{digest: v1.Hash{Algorithm: "sha256", Hex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
-	_, err := OpenCachedLayer(l, "dummy.gz")
+	_, err := openCachedLayer(l, "dummy.gz")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -359,9 +359,9 @@ func TestOpenCachedLayer_Valid(t *testing.T) {
 	cacheFile := filepath.Join(dir, digest.Hex+".gz")
 	os.WriteFile(cacheFile, data, 0644)
 
-	cl, err := OpenCachedLayer(l, cacheFile)
+	cl, err := openCachedLayer(l, cacheFile)
 	if err != nil {
-		t.Fatalf("OpenCachedLayer error = %v", err)
+		t.Fatalf("openCachedLayer error = %v", err)
 	}
 	d, _ := cl.Digest()
 	if d != digest {
@@ -375,7 +375,7 @@ func TestOpenCachedLayer_Missing(t *testing.T) {
 	l := layers[0]
 	dir := t.TempDir()
 
-	_, err := OpenCachedLayer(l, filepath.Join(dir, "nonexistent.gz"))
+	_, err := openCachedLayer(l, filepath.Join(dir, "nonexistent.gz"))
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -391,7 +391,7 @@ func TestOpenCachedLayer_WrongSize(t *testing.T) {
 	cacheFile := filepath.Join(dir, digest.Hex+".gz")
 	os.WriteFile(cacheFile, make([]byte, 10), 0644)
 
-	_, err := OpenCachedLayer(l, cacheFile)
+	_, err := openCachedLayer(l, cacheFile)
 	if err == nil {
 		t.Fatal("expected error for wrong size")
 	}
@@ -407,7 +407,7 @@ func TestOpenCachedLayer_CorruptedGzip(t *testing.T) {
 	cacheFile := filepath.Join(dir, digest.Hex+".gz")
 	os.WriteFile(cacheFile, []byte("not-gzip-data"), 0644)
 
-	_, err := OpenCachedLayer(l, cacheFile)
+	_, err := openCachedLayer(l, cacheFile)
 	if err == nil {
 		t.Fatal("expected error for corrupted gzip")
 	}

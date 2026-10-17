@@ -41,11 +41,7 @@ func NewClient(cfg *config.Config) *Client {
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	r := 2
-	if cfg.Retry >= 0 {
-		r = cfg.Retry
-	}
-	return &Client{cfg: cfg, retry: r}
+	return &Client{cfg: cfg, retry: cfg.Retry}
 }
 
 // WithAuth sets registry credentials.
@@ -110,7 +106,15 @@ func (c *Client) transport(reg name.Registry) http.RoundTripper {
 }
 
 func (c *Client) authenticator(reg name.Registry) authn.Authenticator {
-	if c.username != "" {
+	return c.authenticatorFor(reg, reg)
+}
+
+// authenticatorFor returns the authenticator to use for reg. CLI credentials
+// (--username/--password) are only sent to orig, the registry named on the
+// command line; mirror hosts fall back to the config auths or anonymous access
+// so credentials never leak to third-party mirrors.
+func (c *Client) authenticatorFor(reg, orig name.Registry) authn.Authenticator {
+	if c.username != "" && sameRegistry(reg, orig) {
 		return authn.FromConfig(authn.AuthConfig{
 			Username: c.username,
 			Password: c.password,
@@ -124,6 +128,10 @@ func (c *Client) authenticator(reg name.Registry) authn.Authenticator {
 		return authn.FromConfig(*a)
 	}
 	return authn.Anonymous
+}
+
+func sameRegistry(a, b name.Registry) bool {
+	return normalizeRegistry(a.Name()) == normalizeRegistry(b.Name())
 }
 
 func (c *Client) resolveAuth(regName string) *authn.AuthConfig {
@@ -142,9 +150,9 @@ func (c *Client) resolveAuth(regName string) *authn.AuthConfig {
 	return &authn.AuthConfig{Username: a.Username, Password: password}
 }
 
-func parsePlatform(platform string) *v1.Platform {
+func parsePlatform(platform string) (*v1.Platform, error) {
 	if platform == "" {
-		return nil
+		return nil, nil
 	}
 	p := &v1.Platform{}
 	parts := strings.Split(platform, "/")
@@ -157,18 +165,23 @@ func parsePlatform(platform string) *v1.Platform {
 		p.Architecture = parts[1]
 		p.Variant = parts[2]
 	default:
-		p.OS = "linux"
-		p.Architecture = platform
+		return nil, fmt.Errorf("invalid platform %q, expected os/arch or os/arch/variant", platform)
 	}
-	return p
+	if p.OS == "" || p.Architecture == "" {
+		return nil, fmt.Errorf("invalid platform %q: empty segment", platform)
+	}
+	return p, nil
 }
 
 // NewLayerFetcher returns a function that opens a layer download stream
 // with per-call context support, allowing per-layer timeouts and resumable
 // downloads via HTTP Range requests. When offset > 0, the request asks the
-// registry for the blob content starting at that byte offset.
-func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
+// registry for the blob content starting at that byte offset. origReg is the
+// registry from the original image reference; its credentials are used as a
+// fallback when ref points at an anonymous mirror of a private registry.
+func (c *Client) NewLayerFetcher(ref name.Reference, origReg name.Registry) func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 	repo := ref.Context()
+	origAuth := c.authenticator(origReg)
 	return func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 		hex := strings.TrimPrefix(digestHex, "sha256:")
 		reg := repo.Registry
@@ -186,7 +199,11 @@ func (c *Client) NewLayerFetcher(ref name.Reference) func(ctx context.Context, d
 		}
 		req.Header.Set("User-Agent", userAgent)
 
-		tr, err := transport.NewWithContext(ctx, reg, c.authenticator(reg), c.transport(reg), []string{repo.Scope(transport.PullScope)})
+		auth := c.authenticatorFor(reg, origReg)
+		if auth == authn.Anonymous && origAuth != authn.Anonymous {
+			auth = origAuth
+		}
+		tr, err := transport.NewWithContext(ctx, reg, auth, c.transport(reg), []string{repo.Scope(transport.PullScope)})
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +248,10 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 	}
 
 	refsToTry := c.resolveRefs(ref)
-	plat := parsePlatform(platform)
+	plat, err := parsePlatform(platform)
+	if err != nil {
+		return nil, nil, err
+	}
 	origAuth := c.authenticator(ref.Context().Registry)
 
 	skipRef := make(map[string]bool)
@@ -249,7 +269,7 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 			if skipRef[r.String()] {
 				continue
 			}
-			img, err := c.tryReference(ctx, r, origAuth, plat)
+			img, err := c.tryReference(ctx, r, origAuth, ref.Context().Registry, plat)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
 				lastErr = err
@@ -313,10 +333,10 @@ func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
 	return append(refs, ref)
 }
 
-func (c *Client) tryReference(ctx context.Context, r name.Reference, origAuth authn.Authenticator, plat *v1.Platform) (v1.Image, error) {
+func (c *Client) tryReference(ctx context.Context, r name.Reference, origAuth authn.Authenticator, origReg name.Registry, plat *v1.Platform) (v1.Image, error) {
 	reg := r.Context().Registry
-	auth := c.authenticator(reg)
-	if c.username == "" && auth == authn.Anonymous && origAuth != authn.Anonymous {
+	auth := c.authenticatorFor(reg, origReg)
+	if auth == authn.Anonymous && origAuth != authn.Anonymous {
 		auth = origAuth
 	}
 	opts := []remote.Option{

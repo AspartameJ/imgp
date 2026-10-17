@@ -60,7 +60,7 @@ Supported keys:
 var configListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List current configuration",
-	Long:  "Display all configuration values: mirror map, parallelism, timeouts, retry, and insecure registries.",
+	Long:  "Display all configuration values: mirror map, insecure registries, parallelism, layer timeout, overall timeout, retry, and cache dir.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -69,11 +69,11 @@ var configListCmd = &cobra.Command{
 		if _, statErr := os.Stat(config.ConfigPath()); os.IsNotExist(statErr) {
 			fmt.Fprintf(os.Stderr, "# Config file not found at %s, using defaults.\n# Run `imgp config set <key> <value>` to create one.\n\n", config.ConfigPath())
 		}
-		lt := "0"
+		lt := "30 (default)"
 		if cfg.LayerTimeout != nil {
 			lt = fmt.Sprintf("%d", *cfg.LayerTimeout)
 		}
-		to := "0"
+		to := "0 (default)"
 		if cfg.Timeout != nil {
 			to = fmt.Sprintf("%d", *cfg.Timeout)
 		}
@@ -83,7 +83,11 @@ var configListCmd = &cobra.Command{
 		data += fmt.Sprintf("Layer Timeout: %s min\n", lt)
 		data += fmt.Sprintf("Timeout: %s min\n", to)
 		data += fmt.Sprintf("Retry: %d\n", cfg.Retry)
-		data += fmt.Sprintf("Cache Dir: %s\n", cfg.CacheDir)
+		cacheDirValue := cfg.CacheDir
+		if cacheDirValue == "" {
+			cacheDirValue = "(OS default)"
+		}
+		data += fmt.Sprintf("Cache Dir: %s\n", cacheDirValue)
 		_, err = fmt.Print(data)
 		return err
 	},

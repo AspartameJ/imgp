@@ -102,16 +102,19 @@ resolveSaveParams()                     # cmd/save_params.go
       2. --password-env → os.Getenv()
       3. 空字符串
 
-registry.Client.authenticator(reg)      # internal/registry/client.go
+registry.Client.authenticatorFor(reg, origReg)   # internal/registry/client.go
   └─ auth chain:
-      1. WithAuth() 设置的 username/password（来自 CLI）
+      1. WithAuth() 设置的 username/password，且仅当 reg == origReg（镜像名对应的原始 registry）
       2. config.auths[regName] → resolveAuth()
          a. password_env → 环境变量（存在则覆盖）
          b. password 字段（config 文件，但不会被持久化保存）
       3. authn.Anonymous（匿名访问）
 ```
 
-**注意**: `resolveAuth()` 中如果 `PasswordEnv` 设置了但环境变量不存在，会回退到 `Password` 字段并输出 WARN 到 stderr。
+**注意**:
+- CLI 凭据必须 `--username` 与 `--password`/`--password-env` 同时提供；只给密码会被忽略（`cmd/save.go` 输出 WARN）。
+- 凭据按 registry 作用域：镜像加速站（非原始 registry）不会收到 CLI 凭据，只会用 config auths 或匿名。若镜像站匿名失败而原始 registry 有认证，`tryReference()` / `NewLayerFetcher()` 会回退到原始 registry 的认证（支持"私有 registry + 匿名镜像站"场景）。
+- `resolveAuth()` 中如果 `PasswordEnv` 设置了但环境变量不存在，会回退到 `Password` 字段并输出 WARN 到 stderr。
 
 ### 4.2 缓存机制
 
@@ -167,7 +170,9 @@ for attempt = 0; attempt <= p.maxRetries; attempt++ {
     if attempt > 0 {
         if !util.IsRetryable(lastErr) { break }   // 非可重试错误直接放弃
         p.backoffOrSendError(...)                  // 退避等待
-        os.Remove(cacheFile)                        // 清理失败的缓存
+        if !p.preservePartial(cacheFile, t.Size) { // 续传开启时保留部分文件
+            removeCacheArtifacts(cacheFile)        // 同时清理 .gz 与 .verified
+        }
     }
     downloadAttempt(...)
 }
@@ -214,7 +219,7 @@ layer 并行下载
 ```go
 // ProgressDisplay.RunPullUI()
 // 非安静模式:
-//   1. ticker (100ms) → renderFrame() → 输出到 stderr
+//   1. ticker (250ms) → renderFrame() → 输出到 stderr
 //   2. useANSI → \033[%dA 光标上移覆盖上一帧
 // 安静模式:
 //   1. 只收集 events，不渲染
@@ -239,9 +244,11 @@ downloadAttempt()                    # internal/puller/puller.go
 - `LayerTask.OpenLayer` 签名带 `offset`，由 registry 层构造 `Range: bytes=N-` 请求
 - `NewLayerFetcher` 不再用 `remote.Layer().Compressed()`，改为手动构造 `/v2/<repo>/blobs/<digest>` 请求，复用 `c.transport(reg)` 的认证
 - server 返回 `206` → 正常续传；返回 `200`（忽略 Range）→ `io.CopyN` 丢弃已下载前缀，安全追加
-- `preservePartial()` 决定是否保留部分文件：仅当 resume 开启且 `0 < 文件大小 < 目标大小`
+- `preservePartial()` 决定是否保留部分文件：仅当 resume 开启、未用 `--no-cache`，且 `0 < 文件大小 < 目标大小`
+- `--no-cache` 会同时关闭续传（offset 归零并丢弃部分文件），确保"强制重下"语义
 - 完整性由 `offset + written == t.Size` 加上 sha256 digest 校验保证（续传前先对已有前缀哈希），续传不会绕过校验
 - 重试时保留部分进度（不删除文件），失败后也保留，供下次续传
+- 缓存文件被判定无效并删除时，会同时删除 `.verified` 标记，避免留下孤立标记
 
 ---
 
@@ -252,11 +259,11 @@ downloadAttempt()                    # internal/puller/puller.go
 ```powershell
 # PowerShell
 .\build.ps1                     # 编译到 bin\imgp.exe
-.\build.ps1 -Version "2.1.3"    # 嵌入版本号
+.\build.ps1 -Version "x.y.z"    # 嵌入版本号
 
 # Makefile（需要 sh 环境）
 make build                      # go build -o imgp .
-make VERSION=2.1.3 release      # 构建 + 打 tag
+make VERSION=x.y.z release      # 构建 + 打 tag
 ```
 
 ### 5.2 版本号机制
@@ -310,13 +317,15 @@ server, img, ref := mockRegistry(t, imgSize, numLayers)
 
 | Package | 当前覆盖率 | 目标 |
 |---------|-----------|------|
-| `cmd/` | ~86% | ≥80% |
+| `cmd/` | ~82% | ≥80% |
 | `internal/config/` | ~88% | ≥85% |
-| `internal/puller/` | ~81% | ≥80% |
-| `internal/registry/` | ~95% | ≥90% |
+| `internal/puller/` | ~85% | ≥80% |
+| `internal/registry/` | ~92% | ≥90% |
 | `internal/saver/` | ~86% | ≥85% |
-| `internal/ui/` | ~86% | ≥85% |
-| `internal/util/` | ~94% | ≥90% |
+| `internal/ui/` | ~89% | ≥85% |
+| `internal/util/` | ~91% | ≥90% |
+
+> 覆盖率随 `go test -cover ./...` 实测更新，仅作参考。
 
 ---
 
@@ -370,7 +379,7 @@ imgp save hello-world:latest -o test3.tar --no-cache
 
 ```powershell
 # 1. 更新版本号
-.\build.ps1 -Version "2.2.0"
+.\build.ps1 -Version "x.y.z"
 
 # 2. 运行全部测试
 go test -race ./...
@@ -378,8 +387,8 @@ go test -race ./...
 # 3. 提交并打 tag
 git add -A
 git commit -m "feat: ..."
-git tag v2.2.0
-git push && git push origin v2.2.0
+git tag vX.Y.Z
+git push && git push origin vX.Y.Z
 
 # 4. 在 GitHub/GitCode Releases 页面创建 Release
 #    上传 bin\imgp.exe 作为附件
@@ -397,14 +406,16 @@ git push && git push origin v2.2.0
 
 ### 关键常量与默认值
 
-| 常量 | 值 | 位置 |
+位置以"文件 + 符号"给出，避免行号随代码漂移。
+
+| 常量 | 值 | 位置（符号） |
 |------|-----|------|
-| 默认并行数 | 4 | `internal/config/config.go:10` |
-| 默认重试次数 | 2 | `internal/config/config.go:43` |
-| 默认 layer 超时 | 30 分钟 | `cmd/save_params.go:91` |
-| 默认超时 | 0（无限制） | `cmd/save_params.go:99` |
-| 最大重试次数 | 30 | `cmd/save_params.go:89` |
-| 缓存目录 | `%LOCALAPPDATA%\imgp\cache` | `internal/config/config.go:128` |
-| 配置文件 | `imgp.json`（与二进制同目录） | `internal/config/config.go:48` |
-| backoff 基数 | 1 秒 | `internal/util/backoff.go:15` |
-| backoff 上限 | 30 秒 | `internal/util/backoff.go:18` |
+| 默认并行数 | 4 | `internal/config/config.go` → `DefaultParallelism` |
+| 默认重试次数 | 2 | `internal/config/config.go` → `DefaultConfig` / `cmd/root.go` → `--retry` |
+| 默认 layer 超时 | 30 分钟 | `cmd/save_params.go` → `resolveSaveParams` |
+| 默认超时 | 0（无限制） | `cmd/save_params.go` → `resolveSaveParams` |
+| 最大重试次数 | 30 | `cmd/save_params.go` → `resolveSaveParams`（钳制） |
+| 缓存目录 | `%LOCALAPPDATA%\imgp\cache` | `internal/config/config.go` → `osDefaultCacheDir` |
+| 配置文件 | `imgp.json`（与二进制同目录） | `internal/config/config.go` → `ConfigPath` |
+| backoff 基数 / 上限 | 1 秒 / 30 秒 | `internal/util/backoff.go` → `Backoff` |
+| 有效架构列表 | 14 种 | `internal/util/arch.go` → `Archs` |

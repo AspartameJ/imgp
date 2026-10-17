@@ -119,6 +119,11 @@ func TestConfigSetCmd_RunE(t *testing.T) {
 	cacheDir, _ = os.MkdirTemp("", "imgp-config-*")
 	defer os.RemoveAll(cacheDir)
 
+	// RunE loads and saves the real config path; clean up after the test so it
+	// cannot leak into sibling tests.
+	cfgPath := config.ConfigPath()
+	defer os.Remove(cfgPath)
+
 	cmd := &cobra.Command{}
 	err := configSetCmd.RunE(cmd, []string{"parallelism", "8"})
 	if err != nil {
@@ -156,6 +161,9 @@ func TestSetConfigKey_Retry_Invalid(t *testing.T) {
 }
 
 func TestConfigListCmd_RunE(t *testing.T) {
+	cfgPath := config.ConfigPath()
+	defer os.Remove(cfgPath)
+
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w

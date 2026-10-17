@@ -54,27 +54,27 @@ func TestFormatBytes(t *testing.T) {
 }
 
 func TestRenderBar(t *testing.T) {
-	bar := RenderBar(50, 100, 10)
+	bar := renderBar(50, 100, 10)
 	if !strings.Contains(bar, "50%") {
-		t.Errorf("RenderBar(50, 100, 10) = %q, want 50%%", bar)
+		t.Errorf("renderBar(50, 100, 10) = %q, want 50%%", bar)
 	}
 	if len(bar) < 5 {
-		t.Errorf("RenderBar returned too short: %q", bar)
+		t.Errorf("renderBar returned too short: %q", bar)
 	}
 
-	zero := RenderBar(0, 0, 10)
+	zero := renderBar(0, 0, 10)
 	if zero != "░░░░░░░░░░" {
-		t.Errorf("RenderBar(0, 0, 10) = %q, want empty bar", zero)
+		t.Errorf("renderBar(0, 0, 10) = %q, want empty bar", zero)
 	}
 
-	full := RenderBar(100, 100, 10)
+	full := renderBar(100, 100, 10)
 	if !strings.Contains(full, "100%") {
-		t.Errorf("RenderBar(100, 100, 10) = %q, want 100%%", full)
+		t.Errorf("renderBar(100, 100, 10) = %q, want 100%%", full)
 	}
 
-	clamped := RenderBar(math.MaxInt64, 100, 10)
+	clamped := renderBar(math.MaxInt64, 100, 10)
 	if !strings.Contains(clamped, "100%") {
-		t.Errorf("RenderBar overflow = %q, want clamped 100%%", clamped)
+		t.Errorf("renderBar overflow = %q, want clamped 100%%", clamped)
 	}
 }
 

@@ -16,10 +16,11 @@ import (
 
 func TestE2E_FullPipeline(t *testing.T) {
 	tests := []struct {
-		name   string
-		gzip   bool
-		resume bool
-		check  func(t *testing.T, data []byte)
+		name       string
+		gzip       bool
+		resume     bool
+		prePartial bool
+		check      func(t *testing.T, data []byte)
 	}{
 		{
 			name: "tar",
@@ -43,8 +44,9 @@ func TestE2E_FullPipeline(t *testing.T) {
 			},
 		},
 		{
-			name:   "resume",
-			resume: true,
+			name:       "resume",
+			resume:     true,
+			prePartial: true,
 			check: func(t *testing.T, data []byte) {
 				if len(data) == 0 {
 					t.Error("exported tar is empty")
@@ -74,13 +76,14 @@ func TestE2E_FullPipeline(t *testing.T) {
 			}
 			defer func() { runtime.GC(); os.RemoveAll(cacheDir) }()
 
-			layerFetcher := client.NewLayerFetcher(ref)
+			layerFetcher := client.NewLayerFetcher(ref, ref.Context().Registry)
 			imgLayers, err := fetchedImg.Layers()
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			tasks := make([]puller.LayerTask, len(imgLayers))
+			var offsets []int64
 			for i, l := range imgLayers {
 				d, err := l.Digest()
 				if err != nil {
@@ -96,8 +99,25 @@ func TestE2E_FullPipeline(t *testing.T) {
 					DigestHex: dHex,
 					Size:      size,
 					OpenLayer: func(ctx context.Context, offset int64) (io.ReadCloser, error) {
+						offsets = append(offsets, offset)
 						return layerFetcher(ctx, dHex, offset)
 					},
+				}
+			}
+
+			if tt.prePartial {
+				// Seed a half-written cache file so the puller must resume layer 0.
+				rc, err := imgLayers[0].Compressed()
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err := io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(cacheDir, tasks[0].DigestHex+".gz"), data[:len(data)/2], 0644); err != nil {
+					t.Fatal(err)
 				}
 			}
 
@@ -109,6 +129,18 @@ func TestE2E_FullPipeline(t *testing.T) {
 			for evt := range eventCh {
 				if evt.Err != nil {
 					t.Fatalf("layer %d pull error: %v", evt.Index, evt.Err)
+				}
+			}
+
+			if tt.prePartial {
+				resumed := false
+				for _, o := range offsets {
+					if o > 0 {
+						resumed = true
+					}
+				}
+				if !resumed {
+					t.Errorf("expected a ranged request (offset > 0) for the partial layer, got offsets %v", offsets)
 				}
 			}
 
