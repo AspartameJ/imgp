@@ -4,11 +4,19 @@ import (
 	"strings"
 )
 
+// Architecture names reused by the validation list and the suggestion table.
+const (
+	arch386   = "386"
+	archAMD64 = "amd64"
+	archARM   = "arm"
+	archARM64 = "arm64"
+)
+
 // Archs returns all valid CPU architectures in a stable order. It is the
 // single source of truth for architecture validation and shell completion.
 func Archs() []string {
 	return []string{
-		"386", "amd64", "arm", "arm64", "loong64",
+		arch386, archAMD64, archARM, archARM64, "loong64",
 		"mips", "mips64", "mips64le", "mipsle", "ppc64",
 		"ppc64le", "riscv64", "s390x", "wasm",
 	}
@@ -33,17 +41,17 @@ func IsValidArch(arch string) bool {
 func ArchSuggestion(arch string) string {
 	switch arch {
 	case "aarch64":
-		return "arm64"
+		return archARM64
 	case "x86_64":
-		return "amd64"
+		return archAMD64
 	case "amd":
-		return "amd64"
+		return archAMD64
 	case "i386", "i686":
-		return "386"
+		return arch386
 	case "armv7", "armv7l":
-		return "arm"
+		return archARM
 	case "armv8", "arm64v8":
-		return "arm64"
+		return archARM64
 	}
 	return ""
 }

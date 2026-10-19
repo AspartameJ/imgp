@@ -243,7 +243,7 @@ downloadAttempt()                    # internal/puller/puller.go
 
 **关键设计**:
 - `LayerTask.OpenLayer` 签名带 `offset`，由 registry 层构造 `Range: bytes=N-` 请求
-- `NewLayerFetcher` 不再用 `remote.Layer().Compressed()`，改为手动构造 `/v2/<repo>/blobs/<digest>` 请求，复用 `c.transport(reg)` 的认证
+- `NewLayerFetcher` 不再用 `remote.Layer().Compressed()`，改为手动构造 `/v2/<repo>/blobs/<digest>` 请求：transport 复用 `c.transport(reg)`，认证由 `authenticatorFor(reg, origReg)` 按 registry 作用域提供（镜像站不会收到原始 registry 的 CLI 凭据）
 - server 返回 `206` → 正常续传；返回 `200`（忽略 Range）→ `io.CopyN` 丢弃已下载前缀，安全追加
 - `preservePartial()` 决定是否保留部分文件：仅当 resume 开启、未用 `--no-cache`，且 `0 < 文件大小 < 目标大小`
 - `--no-cache` 会同时关闭续传（offset 归零并丢弃部分文件），确保"强制重下"语义
@@ -319,7 +319,7 @@ server, img, ref := mockRegistry(t, imgSize, numLayers)
 | Package | 当前覆盖率 | 目标 |
 |---------|-----------|------|
 | `cmd/` | ~85% | ≥80% |
-| `internal/config/` | ~88% | ≥85% |
+| `internal/config/` | ~90% | ≥85% |
 | `internal/puller/` | ~85% | ≥80% |
 | `internal/registry/` | ~93% | ≥90% |
 | `internal/saver/` | ~86% | ≥85% |
@@ -327,6 +327,15 @@ server, img, ref := mockRegistry(t, imgSize, numLayers)
 | `internal/util/` | ~91% | ≥90% |
 
 > 覆盖率随 `go test -cover ./...` 实测更新，仅作参考。
+
+### 6.4 静态检查
+
+```powershell
+go vet ./...                # 标准分析器
+golangci-lint run           # v2 配置见 .golangci.yml（Makefile 的 lint 目标会调用）
+```
+
+`.golangci.yml` 在 v2 默认集（errcheck、govet、ineffassign、staticcheck、unused）之上启用 `bodyclose`、`goconst`、`gosec`、`noctx`、`prealloc`；`*_test.go` 对 errcheck/goconst/gosec 豁免。少数刻意为之的写法（Windows 控制台 `unsafe` 调用、`insecure-registries` 的 `InsecureSkipVerify`、用户指定的输出路径等）以带原因的 `//nolint` 标注。
 
 ---
 

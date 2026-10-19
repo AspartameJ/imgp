@@ -68,7 +68,7 @@ func (p *ProgressDisplay) runQuiet(ctx context.Context, eventCh <-chan puller.Pu
 			p.Layers[evt.Index].Digest = evt.Digest
 			p.Layers[evt.Index].Status = evt.Status
 			if evt.Err != nil {
-				p.Layers[evt.Index].Status = "error"
+				p.Layers[evt.Index].Status = puller.StatusError
 				p.Layers[evt.Index].ErrMsg = evt.Err.Error()
 			}
 		}
@@ -95,7 +95,7 @@ func (p *ProgressDisplay) initLayerStates(tasks []puller.LayerTask) {
 	p.Layers = make([]LayerState, len(tasks))
 	p.Total = 0
 	for i, t := range tasks {
-		p.Layers[i] = LayerState{Status: "pending"}
+		p.Layers[i] = LayerState{Status: puller.StatusPending}
 		p.Total += t.Size
 	}
 }
@@ -125,7 +125,7 @@ func (p *ProgressDisplay) startEventReader(ctx context.Context, eventCh <-chan p
 					p.Layers[evt.Index].Digest = evt.Digest
 					p.Layers[evt.Index].Total = evt.Total
 					if evt.Err != nil {
-						p.Layers[evt.Index].Status = "error"
+						p.Layers[evt.Index].Status = puller.StatusError
 						p.Layers[evt.Index].ErrMsg = evt.Err.Error()
 					} else {
 						p.Layers[evt.Index].Current = evt.Bytes
@@ -151,10 +151,10 @@ func (p *ProgressDisplay) calcProgress() frameStats {
 	s.allDone = true
 	for _, ls := range p.Layers {
 		switch ls.Status {
-		case "done", "cached":
+		case puller.StatusDone, puller.StatusCached:
 			s.doneLayers++
 			s.currentBytes += ls.Total
-		case "downloading":
+		case puller.StatusDownloading:
 			s.allDone = false
 			s.currentBytes += ls.Current
 		default:
@@ -189,15 +189,15 @@ func (p *ProgressDisplay) renderFrame(totalLayers int) (string, bool) {
 		bar := renderBar(ls.Current, ls.Total, 30)
 		digest := Shorten(ls.Digest, 12)
 		switch ls.Status {
-		case "cached":
+		case puller.StatusCached:
 			fmt.Fprintf(&buf, "%s    %s %s (cached)\n", erase, "\u2713", digest)
-		case "done":
+		case puller.StatusDone:
 			fmt.Fprintf(&buf, "%s    %s %s %s\n", erase, "\u2713", digest, bar)
-		case "downloading":
+		case puller.StatusDownloading:
 			fmt.Fprintf(&buf, "%s    %s %s %s %s/%s\n",
 				erase, "\u25CB", digest, bar,
 				FormatBytes(ls.Current), FormatBytes(ls.Total))
-		case "error":
+		case puller.StatusError:
 			msg := "download failed"
 			if ls.ErrMsg != "" {
 				msg = ls.ErrMsg
@@ -253,17 +253,17 @@ func (p *ProgressDisplay) RunPullUI(ctx context.Context, eventCh <-chan puller.P
 			frame, allDone := p.renderFrame(totalLayers)
 			if p.useANSI {
 				if prevLayers > 0 {
-					fmt.Fprintf(stderr, "\033[%dA", prevLayers)
+					_, _ = fmt.Fprintf(stderr, "\033[%dA", prevLayers)
 				}
 				prevLayers = 1 + totalLayers
-				fmt.Fprint(stderr, frame)
+				_, _ = fmt.Fprint(stderr, frame)
 			} else {
 				// Without a terminal the frame cannot be refreshed in place;
 				// print it only when a layer status changes so redirected
 				// logs stay readable instead of repeating every 250ms.
 				if sig := p.stateSignature(); sig != prevSig {
 					prevSig = sig
-					fmt.Fprint(stderr, frame)
+					_, _ = fmt.Fprint(stderr, frame)
 				}
 			}
 
@@ -277,7 +277,7 @@ func (p *ProgressDisplay) RunPullUI(ctx context.Context, eventCh <-chan puller.P
 			if !p.useANSI {
 				frame, _ := p.renderFrame(totalLayers)
 				if sig := p.stateSignature(); sig != prevSig {
-					fmt.Fprint(stderr, frame)
+					_, _ = fmt.Fprint(stderr, frame)
 				}
 			}
 			return quit

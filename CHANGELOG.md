@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Fixed
-- **CLI 凭据发往镜像站** — CLI 用户名/密码此前会发给每一个 registry（含第三方加速站）；现按 registry 作用域，仅发往镜像名对应的原始 registry，镜像站改用 config auths 或匿名
+- **CLI 凭据发往镜像站** — CLI 用户名/密码此前会发给每一个 registry（含第三方加速站），随后也曾尝试"镜像站匿名失败时回退原始凭据"；现在统一按 registry 作用域，凭据仅发往镜像名对应的原始 registry，镜像站只用 config auths 或匿名（私有仓库经镜像站失败时由 `resolveRefs()` 末尾的原始地址带凭据重试）
 - **`--no-cache` 未强制重下** — 存在部分文件时仍会续传；现在 `--no-cache` 同时关闭续传并丢弃部分文件
 - **孤立 `.verified` 标记** — 缓存文件被判为无效或删除时同步删除对应 `.verified` 标记
 - **`cache clear` 统计少报** — 先读 `Info()` 再删除，修正 Unix/macOS 下释放大小统计为 0
@@ -14,8 +14,9 @@
 - **`config list` 超时显示** — `layer-timeout`/`timeout` 未设置时显示生效默认值（30/0，标注 default）
 
 ### Changed
+- **缓存权限收紧** — 缓存目录 0755→0750，layer 与 `.verified` 文件 0644→0600，避免同机其他用户读取
 - **`--platform` shell 补全** — 架构列表改由 `util.Archs` 单一来源生成，覆盖全部 14 种架构
-- **镜像站不再回退原始凭据** — `tryReference()`/`NewLayerFetcher()` 不再把 CLI 凭据回退发给未配置认证的镜像站；私有仓库经镜像站拉取失败时，由 `resolveRefs()` 末尾的原始地址带凭据重试
+- **配置键归一化** — `mirror_map` / `auths` 的键会归一化，`index.docker.io`、`registry-1.docker.io`、`host:443` 等写法均可命中（`*` 通配键保留）
 - **私有仓库示例** — README/CLI 帮助示例补全 `--password-env IMG_REGISTRY_PASSWORD` 与 `--username` 说明
 
 ## v2.2.3 (2026-10-10)

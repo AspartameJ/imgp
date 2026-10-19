@@ -15,6 +15,10 @@ linters:
 
   exclusions:
     rules:
+      # Test files: unchecked cleanup errors, repeated literals and permissive
+      # file modes are expected and not worth annotating.
+      - path: _test\.go
+        linters: [errcheck, goconst, gosec]
       # Allow unchecked errors in defer (common Go pattern).
       - linters: [gosec]
         text: "G104"

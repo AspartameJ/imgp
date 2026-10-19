@@ -68,11 +68,11 @@ func verifyGzip(cacheFile string) error {
 		}
 	}
 
-	f, err := os.Open(cacheFile)
+	f, err := os.Open(cacheFile) //nolint:gosec // local cache file derived from a digest
 	if err != nil {
 		return fmt.Errorf("open cached layer: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var magic [2]byte
 	if _, err := io.ReadFull(f, magic[:]); err != nil || magic[0] != 0x1f || magic[1] != 0x8b {
@@ -85,8 +85,8 @@ func verifyGzip(cacheFile string) error {
 	if err != nil {
 		return fmt.Errorf("cached layer corrupted (invalid gzip): %s: %w", cacheFile, err)
 	}
-	defer gr.Close()
-	if _, err := io.Copy(io.Discard, gr); err != nil {
+	defer func() { _ = gr.Close() }()
+	if _, err := io.Copy(io.Discard, gr); err != nil { //nolint:gosec // layer size is bounded by the manifest
 		if rmErr := os.Remove(cacheFile); rmErr != nil && !os.IsNotExist(rmErr) {
 			fmt.Fprintf(os.Stderr, "remove corrupted cache: %s: %v\n", cacheFile, rmErr)
 		}
@@ -95,7 +95,7 @@ func verifyGzip(cacheFile string) error {
 		}
 		return fmt.Errorf("cached layer corrupted (gzip CRC mismatch): %s: %w", cacheFile, err)
 	}
-	if err := os.WriteFile(markerFile, nil, 0644); err != nil {
+	if err := os.WriteFile(markerFile, nil, 0600); err != nil {
 		return fmt.Errorf("write verification marker: %w", err)
 	}
 	return nil
@@ -234,17 +234,17 @@ func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outpu
 		}
 	}()
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil { //nolint:gosec // output dir chosen by the user
 		return fmt.Errorf("create output directory: %w", err)
 	}
-	f, createErr := os.Create(tmpPath)
+	f, createErr := os.Create(tmpPath) //nolint:gosec // output path chosen by the user
 	if createErr != nil {
 		return fmt.Errorf("create output file: %w", createErr)
 	}
 	fileClosed := false
 	defer func() {
 		if !fileClosed {
-			f.Close()
+			_ = f.Close()
 		}
 	}()
 
@@ -267,7 +267,7 @@ func writeTarBall(ctx context.Context, ref name.Reference, v1Img v1.Image, outpu
 
 	if writeErr != nil {
 		if gw != nil {
-			gw.Close()
+			_ = gw.Close()
 		}
 		if ctx.Err() != nil {
 			return fmt.Errorf("write tar: %w (context: %v)", writeErr, ctx.Err())

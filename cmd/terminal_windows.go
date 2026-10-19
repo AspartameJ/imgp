@@ -23,10 +23,10 @@ func init() {
 			continue
 		}
 		var mode uint32
-		ret, _, _ := getConsoleMode.Call(fd, uintptr(unsafe.Pointer(&mode)))
+		ret, _, _ := getConsoleMode.Call(fd, uintptr(unsafe.Pointer(&mode))) //nolint:gosec // required by syscall for Windows console mode
 		if ret == 0 {
 			continue
 		}
-		setConsoleMode.Call(fd, uintptr(mode|0x0004)) // best-effort; failure is non-critical
+		_, _, _ = setConsoleMode.Call(fd, uintptr(mode|0x0004)) // best-effort; failure is non-critical
 	}
 }

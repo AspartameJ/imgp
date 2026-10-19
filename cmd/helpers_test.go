@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -113,7 +114,7 @@ func imageBlobs(t *testing.T, img v1.Image) map[string][]byte {
 // TestSaveGlobalsCoversAllFlags fails when a flag variable registered in
 // root.go is missing from saveGlobals, which would leak state across tests.
 func TestSaveGlobalsCoversAllFlags(t *testing.T) {
-	rootSrc, err := os.ReadFile("root.go")
+	sources, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,18 +125,27 @@ func TestSaveGlobalsCoversAllFlags(t *testing.T) {
 
 	re := regexp.MustCompile(`Var[A-Za-z]*\(&([A-Za-z0-9_]+)`)
 	seen := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(string(rootSrc), -1) {
-		name := m[1]
-		if seen[name] {
+	for _, src := range sources {
+		if strings.HasSuffix(src, "_test.go") {
 			continue
 		}
-		seen[name] = true
-		if !strings.Contains(string(helperSrc), name+" = ") {
-			t.Errorf("flag %q is registered in root.go but not restored by saveGlobals", name)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+			name := m[1]
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			if !strings.Contains(string(helperSrc), name+" = ") {
+				t.Errorf("flag %q is registered in %s but not restored by saveGlobals", name, src)
+			}
 		}
 	}
 	if len(seen) == 0 {
-		t.Fatal("no flag variables found in root.go; regexp or file layout changed")
+		t.Fatal("no flag variables found in cmd/*.go; regexp or file layout changed")
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"gitcode.com/DonaldTom/imgp/internal/util"
 )
 
 const DefaultParallelism = 4
@@ -59,17 +61,16 @@ func ConfigPath() string {
 // LoadFrom reads and parses a config from the given path.
 func LoadFrom(path string) (*Config, error) {
 	def := DefaultConfig()
-	cfg := &Config{configPath: path}
-	cfg.MirrorMap = def.MirrorMap
-	cfg.Parallelism = def.Parallelism
-	cfg.Retry = def.Retry
+	// MirrorMap is left nil so an absent key is distinguishable from an
+	// explicitly empty map; the scalars are pre-seeded so that "retry": 0
+	// (a valid value) is told apart from a missing field.
+	cfg := &Config{configPath: path, Parallelism: def.Parallelism, Retry: def.Retry}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the resolved imgp.json location
 	if err != nil {
 		if os.IsNotExist(err) {
-			cfg = def
-			cfg.configPath = path
-			return cfg, nil
+			def.configPath = path
+			return def, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
@@ -78,11 +79,28 @@ func LoadFrom(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	if cfg.MirrorMap == nil {
+	switch {
+	case cfg.MirrorMap == nil:
 		cfg.MirrorMap = def.MirrorMap
+	case len(cfg.MirrorMap) == 0:
+		// Explicitly empty map: all mirrors disabled by the user.
+	default:
+		// Built-in mirrors stay available; config entries (normalized so that
+		// aliases like index.docker.io land on the same key) take precedence.
+		merged := make(map[string][]string, len(def.MirrorMap)+len(cfg.MirrorMap))
+		for k, v := range def.MirrorMap {
+			merged[k] = v
+		}
+		for k, v := range normalizeKeys(cfg.MirrorMap) {
+			merged[k] = v
+		}
+		cfg.MirrorMap = merged
+	}
+	if cfg.Auths != nil {
+		cfg.Auths = normalizeKeys(cfg.Auths)
 	}
 	if cfg.Parallelism < 1 {
-		cfg.Parallelism = DefaultParallelism
+		cfg.Parallelism = def.Parallelism
 	}
 	if cfg.LayerTimeout != nil && *cfg.LayerTimeout < 0 {
 		z := 0
@@ -97,6 +115,20 @@ func LoadFrom(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// normalizeKeys canonicalises registry keys ("*" is preserved) so that aliases
+// such as index.docker.io or host:443 match the lookup side.
+func normalizeKeys[V any](m map[string]V) map[string]V {
+	out := make(map[string]V, len(m))
+	for k, v := range m {
+		if k == "*" {
+			out[k] = v
+			continue
+		}
+		out[util.NormalizeRegistry(k)] = v
+	}
+	return out
 }
 
 // Load reads and parses imgp.json, returning defaults if the file does not exist.

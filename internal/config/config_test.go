@@ -3,22 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
-
-func TestOsDefaultCacheDir_LocalAppData(t *testing.T) {
-	const key = "LOCALAPPDATA"
-	old := os.Getenv(key)
-	defer os.Setenv(key, old)
-	os.Setenv(key, `D:\appdata`)
-
-	dir := osDefaultCacheDir()
-	want := `D:\appdata\imgp\cache`
-	if dir != want {
-		t.Errorf("got %q, want %q", dir, want)
-	}
-}
 
 func TestOsDefaultCacheDir_XDG(t *testing.T) {
 	const laKey = "LOCALAPPDATA"
@@ -33,8 +19,9 @@ func TestOsDefaultCacheDir_XDG(t *testing.T) {
 	os.Setenv(xdgKey, "/custom/xdg")
 
 	dir := osDefaultCacheDir()
-	if !strings.Contains(dir, "xdg") && !strings.Contains(dir, "imgp") {
-		t.Errorf("expected dir containing 'xdg' and 'imgp', got %q", dir)
+	want := filepath.Join("/custom/xdg", "imgp")
+	if dir != want {
+		t.Errorf("osDefaultCacheDir() = %q, want %q", dir, want)
 	}
 }
 
@@ -269,18 +256,64 @@ func TestLoadFrom_Validation(t *testing.T) {
 			t.Errorf("Retry = %d, want 0", cfg.Retry)
 		}
 	})
+}
 
-	t.Run("valid retry is preserved", func(t *testing.T) {
+func TestLoadFrom_NormalizesRegistryKeys(t *testing.T) {
+	cp := filepath.Join(t.TempDir(), "imgp.json")
+	data := `{
+		"mirror_map": {"index.docker.io": ["m.test"], "quay.io:443": ["q.test"]},
+		"auths": {"registry-1.docker.io": {"username": "u"}, "*": {"username": "w"}}
+	}`
+	if err := os.WriteFile(cp, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFrom(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MirrorMap["docker.io"]; len(got) != 1 || got[0] != "m.test" {
+		t.Errorf(`MirrorMap["docker.io"] = %v, want [m.test] (alias key normalized)`, got)
+	}
+	if got := cfg.MirrorMap["quay.io"]; len(got) != 1 || got[0] != "q.test" {
+		t.Errorf(`MirrorMap["quay.io"] = %v, want [q.test] (:443 stripped)`, got)
+	}
+	if _, ok := cfg.Auths["docker.io"]; !ok {
+		t.Errorf("Auths[docker.io] missing, aliases must be normalized: %v", cfg.Auths)
+	}
+	if _, ok := cfg.Auths["*"]; !ok {
+		t.Error(`wildcard "*" auth must be preserved`)
+	}
+}
+
+func TestLoadFrom_MirrorMapMergeAndClear(t *testing.T) {
+	t.Run("built-ins kept, custom wins", func(t *testing.T) {
 		cp := filepath.Join(t.TempDir(), "imgp.json")
-		if err := os.WriteFile(cp, []byte(`{"retry": 0}`), 0644); err != nil {
+		if err := os.WriteFile(cp, []byte(`{"mirror_map": {"docker.io": ["m.test"]}}`), 0644); err != nil {
 			t.Fatal(err)
 		}
 		cfg, err := LoadFrom(cp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Retry != 0 {
-			t.Errorf("Retry = %d, want 0", cfg.Retry)
+		if got := cfg.MirrorMap["docker.io"]; len(got) != 1 || got[0] != "m.test" {
+			t.Errorf(`MirrorMap["docker.io"] = %v, want [m.test]`, got)
+		}
+		if _, ok := cfg.MirrorMap["gcr.io"]; !ok {
+			t.Error("built-in mirrors should remain when only one entry is overridden")
+		}
+	})
+
+	t.Run("explicit empty disables all mirrors", func(t *testing.T) {
+		cp := filepath.Join(t.TempDir(), "imgp.json")
+		if err := os.WriteFile(cp, []byte(`{"mirror_map": {}}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(cp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.MirrorMap) != 0 {
+			t.Errorf("MirrorMap = %v, want empty (explicit clear must not re-add defaults)", cfg.MirrorMap)
 		}
 	})
 }

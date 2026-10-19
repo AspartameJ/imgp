@@ -112,9 +112,9 @@ func platformSuggestions() []string {
 		}
 		s = append(s, "linux/"+a)
 	}
-	for _, os := range suggestOSes {
+	for _, goos := range suggestOSes {
 		for _, a := range []string{"amd64", "arm64"} {
-			s = append(s, os+"/"+a)
+			s = append(s, goos+"/"+a)
 		}
 	}
 	return s

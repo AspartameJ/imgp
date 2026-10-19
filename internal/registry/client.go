@@ -72,7 +72,7 @@ var transportCache sync.Map // key: string(host+insecure), value: *http.Transpor
 
 func (c *Client) transport(reg name.Registry) http.RoundTripper {
 	insecure := c.insecure
-	regName := normalizeRegistry(reg.Name())
+	regName := util.NormalizeRegistry(reg.Name())
 	for _, ir := range c.cfg.InsecureRegistries {
 		if regName == ir || strings.HasSuffix(regName, "."+ir) {
 			insecure = true
@@ -99,7 +99,7 @@ func (c *Client) transport(reg name.Registry) http.RoundTripper {
 		KeepAlive: 30 * time.Second,
 	}).DialContext
 	if insecure {
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user explicitly opted into an insecure registry
 	}
 	transportCache.Store(cacheKey, t)
 	return t
@@ -120,7 +120,7 @@ func (c *Client) authenticatorFor(reg, orig name.Registry) authn.Authenticator {
 			Password: c.password,
 		})
 	}
-	regName := normalizeRegistry(reg.Name())
+	regName := util.NormalizeRegistry(reg.Name())
 	if a := c.resolveAuth(regName); a != nil {
 		return authn.FromConfig(*a)
 	}
@@ -131,7 +131,7 @@ func (c *Client) authenticatorFor(reg, orig name.Registry) authn.Authenticator {
 }
 
 func sameRegistry(a, b name.Registry) bool {
-	return normalizeRegistry(a.Name()) == normalizeRegistry(b.Name())
+	return util.NormalizeRegistry(a.Name()) == util.NormalizeRegistry(b.Name())
 }
 
 func (c *Client) resolveAuth(regName string) *authn.AuthConfig {
@@ -216,24 +216,16 @@ func (c *Client) NewLayerFetcher(ref name.Reference, origReg name.Registry) func
 			if offset > 0 {
 				// Skip the bytes we already have so the caller can append safely.
 				if _, err := io.CopyN(io.Discard, resp.Body, offset); err != nil {
-					resp.Body.Close()
+					_ = resp.Body.Close()
 					return nil, fmt.Errorf("fetch layer: discard prefix: %w", err)
 				}
 			}
 			return resp.Body, nil
 		default:
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("fetch layer: unexpected status code %d", resp.StatusCode)
 		}
 	}
-}
-
-func normalizeRegistry(reg string) string {
-	reg = strings.TrimSuffix(reg, ":443")
-	if reg == "index.docker.io" || reg == "docker.io" || reg == "registry-1.docker.io" {
-		return "docker.io"
-	}
-	return reg
 }
 
 // FetchImage retrieves an image from the registry with mirror fallback and retry.
@@ -289,7 +281,7 @@ func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
 	seen := map[string]bool{ref.String(): true}
 	var refs []name.Reference
 
-	regStr := normalizeRegistry(ref.Context().RegistryStr())
+	regStr := util.NormalizeRegistry(ref.Context().RegistryStr())
 	if mirrors, ok := c.cfg.MirrorMap[regStr]; ok {
 		repoPath := ref.Context().RepositoryStr()
 

@@ -170,6 +170,8 @@ Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `$XDG_CACHE_HOME/imgp` or `~
 
 Keys: `mirror-map`, `parallelism`, `retry`, `cache-dir`, `insecure-registries`, `layer-timeout`, `timeout`. `auths` can only be edited directly in the config file (passwords are never persisted). See [imgp.json.example](imgp.json.example) for every field.
 
+`mirror_map` / `auths` keys are normalized: `index.docker.io`, `registry-1.docker.io`, and `host:443` are equivalent to `docker.io` and `host`; `*` matches any registry. A custom `mirror_map` is merged with the built-ins (same key overrides), and `{}` disables all built-in mirrors.
+
 ---
 
 ## Mirror Acceleration

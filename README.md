@@ -170,6 +170,8 @@ imgp cache info --cache-dir D:\imgp-cache   # 指定缓存目录
 
 可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。`auths` 仅支持直接编辑配置文件（密码不会被持久化写入）。完整字段示例见 [imgp.json.example](imgp.json.example)。
 
+`mirror_map` / `auths` 的键会自动归一化：`index.docker.io`、`registry-1.docker.io`、`host:443` 等价于 `docker.io`、`host`；`*` 作为通配键时匹配任意 registry。自定义 `mirror_map` 会与内置加速合并（同名覆盖），写入 `{}` 则完全关闭内置加速。
+
 ---
 
 ## 镜像加速

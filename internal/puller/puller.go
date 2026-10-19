@@ -15,6 +15,16 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/util"
 )
 
+// Layer status values carried in PullEvent.Status (and mirrored in the UI).
+const (
+	StatusPending     = "pending"
+	StatusStarting    = "starting"
+	StatusDownloading = "downloading"
+	StatusDone        = "done"
+	StatusCached      = "cached"
+	StatusError       = "error"
+)
+
 // PullEvent represents a progress or error event during layer download.
 type PullEvent struct {
 	Index  int
@@ -90,7 +100,7 @@ func sendEvent[T any](ctx context.Context, ch chan<- T, evt T) bool {
 }
 
 func writeVerifiedMarker(markerFile string) {
-	if err := os.WriteFile(markerFile, nil, 0644); err != nil {
+	if err := os.WriteFile(markerFile, nil, 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "pull: write verification marker: %v\n", err)
 	}
 }
@@ -111,11 +121,11 @@ func removeCacheArtifacts(cacheFile string) {
 // fileDigestMatches reports whether the sha256 of the file at path equals the
 // expected digest hex (with or without the "sha256:" prefix).
 func fileDigestMatches(path, wantHex string) bool {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is a local cache file derived from a digest
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return false
@@ -142,14 +152,14 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 		removeCacheFile(cacheFile + ".verified")
 		return false
 	}
-	f, e := os.Open(cacheFile)
+	f, e := os.Open(cacheFile) //nolint:gosec // path is a local cache file derived from a digest
 	if e != nil {
 		removeCacheFile(cacheFile + ".verified")
 		return false
 	}
 	var magic [2]byte
 	_, readErr := io.ReadFull(f, magic[:])
-	f.Close()
+	_ = f.Close()
 	if readErr != nil || magic[0] != 0x1f || magic[1] != 0x8b {
 		removeCacheArtifacts(cacheFile)
 		return false
@@ -176,13 +186,10 @@ func (p *Puller) checkCache(ctx context.Context, ch chan<- PullEvent, t LayerTas
 		writeVerifiedMarker(markerFile)
 	}
 
-	if !sendEvent(ctx, ch, PullEvent{
+	return sendEvent(ctx, ch, PullEvent{
 		Index: t.Index, Digest: t.DigestHex,
-		Bytes: t.Size, Total: t.Size, Status: "cached",
-	}) {
-		return false
-	}
-	return true
+		Bytes: t.Size, Total: t.Size, Status: StatusCached,
+	})
 }
 
 // backoffOrSendError sleeps with exponential backoff; returns false if context was cancelled.
@@ -190,7 +197,7 @@ func (p *Puller) backoffOrSendError(ctx context.Context, ch chan<- PullEvent, t 
 	if err := util.Backoff(ctx, attempt); err != nil {
 		if !sendEvent(ctx, ch, PullEvent{
 			Index: t.Index, Digest: t.DigestHex,
-			Err: ctx.Err(), Status: "error",
+			Err: ctx.Err(), Status: StatusError,
 		}) {
 			return false
 		}
@@ -229,28 +236,28 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 			d = d[:12]
 		}
 		fmt.Fprintf(os.Stderr, "pull: resuming %s from byte %d\n", d, offset)
-		pf, err := os.Open(cacheFile)
+		pf, err := os.Open(cacheFile) //nolint:gosec // local cache file derived from a digest
 		if err != nil {
 			return false, fmt.Errorf("open partial layer for hashing: %w", err)
 		}
 		if _, err := io.CopyN(h, pf, offset); err != nil {
-			pf.Close()
+			_ = pf.Close()
 			return false, fmt.Errorf("hash partial layer: %w", err)
 		}
-		pf.Close()
+		_ = pf.Close()
 	}
 
 	rc, openErr := t.OpenLayer(layerCtx, offset)
 	if openErr != nil {
 		return false, openErr
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	var f *os.File
 	if offset > 0 {
-		f, openErr = os.OpenFile(cacheFile, os.O_WRONLY|os.O_APPEND, 0644)
+		f, openErr = os.OpenFile(cacheFile, os.O_WRONLY|os.O_APPEND, 0600) //nolint:gosec // local cache file derived from a digest
 	} else {
-		f, openErr = os.Create(cacheFile)
+		f, openErr = os.Create(cacheFile) //nolint:gosec // local cache file derived from a digest
 	}
 	if openErr != nil {
 		return false, fmt.Errorf("create cache: %w", openErr)
@@ -258,7 +265,7 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 	closeOnFail := true
 	defer func() {
 		if closeOnFail {
-			f.Close()
+			_ = f.Close()
 		}
 	}()
 
@@ -277,7 +284,7 @@ func (p *Puller) downloadAttempt(ctx context.Context, ch chan<- PullEvent, t Lay
 			if time.Since(lastReport) > 200*time.Millisecond {
 				if !sendEvent(ctx, ch, PullEvent{
 					Index: t.Index, Digest: t.DigestHex,
-					Bytes: offset + written, Total: t.Size, Status: "downloading",
+					Bytes: offset + written, Total: t.Size, Status: StatusDownloading,
 				}) {
 					return false, ctx.Err()
 				}
@@ -324,7 +331,7 @@ func (p *Puller) preservePartial(cacheFile string, total int64) bool {
 // processTask handles a single layer task: check cache, download with retry, send result event.
 func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTask) {
 	if !sendEvent(ctx, ch, PullEvent{
-		Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "starting",
+		Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: StatusStarting,
 	}) {
 		return
 	}
@@ -343,7 +350,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex,
 				Err:    fmt.Errorf("remove cache: %w", err),
-				Status: "error",
+				Status: StatusError,
 			})
 			return
 		}
@@ -351,7 +358,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 	}
 
 	if !sendEvent(ctx, ch, PullEvent{
-		Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
+		Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: StatusDownloading,
 	}) {
 		return
 	}
@@ -370,7 +377,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 				removeCacheArtifacts(cacheFile)
 			}
 			if !sendEvent(ctx, ch, PullEvent{
-				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: "downloading",
+				Index: t.Index, Digest: t.DigestHex, Total: t.Size, Status: StatusDownloading,
 			}) {
 				return
 			}
@@ -381,7 +388,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 			writeVerifiedMarker(cacheFile + ".verified")
 			sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex,
-				Bytes: t.Size, Total: t.Size, Status: "done",
+				Bytes: t.Size, Total: t.Size, Status: StatusDone,
 			})
 			return
 		}
@@ -398,7 +405,7 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 	sendEvent(ctx, ch, PullEvent{
 		Index: t.Index, Digest: t.DigestHex,
 		Err:    fmt.Errorf("download failed after %d %s: %w", attempt, attemptLabel, lastErr),
-		Status: "error",
+		Status: StatusError,
 	})
 }
 
@@ -412,7 +419,7 @@ func (p *Puller) Pull(
 		parallel = 1
 	}
 
-	if err := os.MkdirAll(p.cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(p.cacheDir, 0750); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
 
@@ -441,7 +448,7 @@ func (p *Puller) Pull(
 						fmt.Fprintf(os.Stderr, "PANIC in puller worker: %v\n", r)
 						sendEvent(ctx, ch, PullEvent{
 							Index: t.Index, Digest: t.DigestHex,
-							Err: fmt.Errorf("panic: %v", r), Status: "error",
+							Err: fmt.Errorf("panic: %v", r), Status: StatusError,
 						})
 					}
 				}()

@@ -72,7 +72,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	}
 
 	cd := cmdCacheDir(cfg)
-	if err := os.MkdirAll(cd, 0755); err != nil {
+	if err := os.MkdirAll(cd, 0750); err != nil {
 		return fmt.Errorf("create cache: %w", err)
 	}
 
