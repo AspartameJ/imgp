@@ -29,6 +29,10 @@ var (
 	retryCount      int
 )
 
+// cacheDirUsage is the shared help text for --cache-dir, registered on both
+// the save command and the cache subcommands.
+const cacheDirUsage = "Custom cache directory (default: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)"
+
 var rootCmd = &cobra.Command{
 	Use:   "imgp",
 	Short: "Cross-platform Docker image pull and save tool",
@@ -84,7 +88,7 @@ func init() {
 	saveCmd.Flags().BoolVar(&noCache, "no-cache", false, "Ignore cached layers, force re-download")
 	saveCmd.Flags().BoolVar(&noResume, "no-resume", false, "Discard partial layers and re-download from scratch (resume is enabled by default)")
 	saveCmd.Flags().BoolVarP(&gzip, "gzip", "z", false, "Gzip-compress the output tar file")
-	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific: %LOCALAPPDATA%/imgp/cache on Windows, $XDG_CACHE_HOME/imgp or ~/.cache/imgp on Linux, ~/Library/Caches/imgp on macOS)")
+	saveCmd.Flags().StringVar(&cacheDir, "cache-dir", "", cacheDirUsage)
 	saveCmd.Flags().IntVar(&timeoutMin, "timeout", 0, "Overall timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&layerTimeoutMin, "layer-timeout", 30, "Per-layer download timeout in minutes (0 = no limit)")
 	saveCmd.Flags().IntVar(&retryCount, "retry", 2, "Number of retries on network errors (0 = no retry)")
@@ -93,6 +97,9 @@ func init() {
 		return platformSuggestions(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
+
+// suggestOSes lists the operating systems offered in platform completion.
+var suggestOSes = []string{"windows", "darwin"}
 
 // platformSuggestions lists common os/arch combinations for shell completion.
 // Architecture names come from util.Archs so completion cannot drift from
@@ -105,5 +112,10 @@ func platformSuggestions() []string {
 		}
 		s = append(s, "linux/"+a)
 	}
-	return append(s, "windows/amd64", "windows/arm64", "darwin/amd64", "darwin/arm64")
+	for _, os := range suggestOSes {
+		for _, a := range []string{"amd64", "arm64"} {
+			s = append(s, os+"/"+a)
+		}
+	}
+	return s
 }

@@ -1,4 +1,4 @@
-English | [中文](README.md)
+English | [中文](README.md) | [Changelog](CHANGELOG.md)
 
 # imgp
 
@@ -9,7 +9,7 @@ imgp save hello-world:latest -o hello-world.tar
 docker load -i hello-world.tar
 ```
 
-Download `imgp-windows-amd64.exe` from [Releases](https://gitcode.com/DonaldTom/imgp/releases) and put it in your `PATH`, or `go install gitcode.com/DonaldTom/imgp@latest`. Linux/macOS users should build from source (see Build from Source below).
+Download `imgp.exe` from [Releases](https://gitcode.com/DonaldTom/imgp/releases) and put it in your `PATH`, or `go install gitcode.com/DonaldTom/imgp@latest`. Linux/macOS users should build from source (see Build from Source below). Releases are not automated; the Windows binary is produced locally by `build.ps1` (see [DEVELOPMENT §8](docs/DEVELOPMENT.md)).
 
 ---
 
@@ -75,7 +75,7 @@ flowchart TD
     C --> E{Cache hit?}
     E -- Yes --> F[Use cache ✓]
     E -- No --> D
-    D --> G{partial file and not --no-resume?}
+    D --> G{partial file and no --no-cache/--no-resume?}
     G -- Yes --> H[offset = existing bytes]
     G -- No --> I[offset = 0, remove partial]
     H --> J[HTTP Range request bytes=offset-]
@@ -140,7 +140,7 @@ flowchart TD
 | `--timeout` | int | `0`(unlimited) | Overall timeout (minutes) |
 | `--layer-timeout` | int | `30` | Per-layer timeout (minutes) |
 | `--retry` | int | `2` | Retry count (`0`=no retry) |
-| `-q, --quiet` | bool | `false` | Output path only |
+| `-q, --quiet` | bool | `false` | stdout prints only the path (progress and WARN still go to stderr) |
 
 > `--password` / `--password-env` only take effect together with `--username`; a password alone is ignored (a WARN is printed to stderr). Credentials are only sent to the origin registry of the image, never to third-party mirrors.
 
@@ -152,7 +152,9 @@ imgp cache clear           # remove all cached layers
 imgp cache info --cache-dir D:\imgp-cache   # custom cache directory
 ```
 
-Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `~/.cache/imgp`, macOS `~/Library/Caches/imgp`.
+Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `$XDG_CACHE_HOME/imgp` or `~/.cache/imgp`, macOS `~/Library/Caches/imgp`.
+
+`cache info` prints `Cached layers: N (M verified)`; layers with a `.verified` marker are complete and integrity-checked, while layers without one may be partial files left by an interrupted download (re-running resumes them, `cache clear` removes them).
 
 ### Config
 
@@ -166,7 +168,7 @@ Default: Windows `%LOCALAPPDATA%\imgp\cache`, Linux `~/.cache/imgp`, macOS `~/Li
 }
 ```
 
-Keys: `mirror-map`, `parallelism`, `retry`, `cache-dir`, `insecure-registries`, `layer-timeout`, `timeout`. See [imgp.json.example](imgp.json.example) for every field.
+Keys: `mirror-map`, `parallelism`, `retry`, `cache-dir`, `insecure-registries`, `layer-timeout`, `timeout`. `auths` can only be edited directly in the config file (passwords are never persisted). See [imgp.json.example](imgp.json.example) for every field.
 
 ---
 
@@ -184,6 +186,7 @@ Default mirrors for fast access in China (tried first, fall back to original on 
 Custom: `imgp config set mirror-map "docker.io=my-mirror.com"` (separate multiple with `|`, tried in order).
 
 > Don't include `https://` in mirror addresses; digest references don't use mirrors.
+> Private registries + mirrors: CLI credentials go only to the origin registry; mirrors use config `auths` (or anonymous), and the original address is still retried with credentials. If a mirror itself needs auth, add a separate entry for it under `auths`.
 
 ---
 
@@ -206,7 +209,7 @@ imgp save large-image:latest --no-resume -o large.tar   # force full re-download
 
 ### What platforms are supported?
 
-Format `os/arch`: `linux/amd64` (default), `linux/arm64`, `linux/arm64/v8`, `windows/amd64`, `windows/arm64`, `darwin/amd64`, `darwin/arm64`.
+Format `os/arch` or `os/arch/variant`, e.g. `linux/amd64` (default), `linux/arm64/v8`, `windows/arm64`. Architectures are validated against 14 values: `386`, `amd64`, `arm`, `arm64`, `loong64`, `mips`, `mips64`, `mips64le`, `mipsle`, `ppc64`, `ppc64le`, `riscv64`, `s390x`, `wasm`. `--platform` supports shell completion, and common misspellings get a hint (e.g. `aarch64` → `arm64`).
 
 ### Can't access Docker Hub?
 

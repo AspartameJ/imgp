@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -108,7 +110,39 @@ func imageBlobs(t *testing.T, img v1.Image) map[string][]byte {
 	return blobs
 }
 
+// TestSaveGlobalsCoversAllFlags fails when a flag variable registered in
+// root.go is missing from saveGlobals, which would leak state across tests.
+func TestSaveGlobalsCoversAllFlags(t *testing.T) {
+	rootSrc, err := os.ReadFile("root.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperSrc, err := os.ReadFile("helpers_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	re := regexp.MustCompile(`Var[A-Za-z]*\(&([A-Za-z0-9_]+)`)
+	seen := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(string(rootSrc), -1) {
+		name := m[1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !strings.Contains(string(helperSrc), name+" = ") {
+			t.Errorf("flag %q is registered in root.go but not restored by saveGlobals", name)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no flag variables found in root.go; regexp or file layout changed")
+	}
+}
+
 // saveGlobals saves all package-level test flags into a snapshot function.
+// Keep the snapshot in sync with the flag variables declared in root.go:
+// adding a global flag without listing it here leaks state across tests.
+// TestSaveGlobalsCoversAllFlags guards against that.
 func saveGlobals() func() {
 	p := platform
 	o := output

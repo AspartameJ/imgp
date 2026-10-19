@@ -4,15 +4,18 @@
 
 ### Fixed
 - **CLI 凭据发往镜像站** — CLI 用户名/密码此前会发给每一个 registry（含第三方加速站）；现按 registry 作用域，仅发往镜像名对应的原始 registry，镜像站改用 config auths 或匿名
-- **私有 registry + 镜像站 blob 401** — `NewLayerFetcher` 增加与 manifest 相同的原始 registry 认证回退
 - **`--no-cache` 未强制重下** — 存在部分文件时仍会续传；现在 `--no-cache` 同时关闭续传并丢弃部分文件
 - **孤立 `.verified` 标记** — 缓存文件被判为无效或删除时同步删除对应 `.verified` 标记
 - **`cache clear` 统计少报** — 先读 `Info()` 再删除，修正 Unix/macOS 下释放大小统计为 0
-- **只给密码被静默忽略** — `--password`/`--password-env` 未配合 `--username` 时输出 WARN
+- **只给密码被静默忽略** — `--password`/`--password-env` 未配合 `--username` 时输出 WARN；多镜像批量时每次调用只提示一次
+- **`--password-env` 未设置静默失败** — 该环境变量未设置或为空时此前无任何提示，现输出 WARN
+- **只给用户名也无提示** — 反向情形（只给 `--username` 不给密码）现同样输出 WARN
+- **`cache info` 误把部分文件计为完整层** — 输出改为 `Cached layers: N (M verified)`，区分带 `.verified` 标记的完整层与中断遗留的部分文件
 - **`config list` 超时显示** — `layer-timeout`/`timeout` 未设置时显示生效默认值（30/0，标注 default）
 
 ### Changed
 - **`--platform` shell 补全** — 架构列表改由 `util.Archs` 单一来源生成，覆盖全部 14 种架构
+- **镜像站不再回退原始凭据** — `tryReference()`/`NewLayerFetcher()` 不再把 CLI 凭据回退发给未配置认证的镜像站；私有仓库经镜像站拉取失败时，由 `resolveRefs()` 末尾的原始地址带凭据重试
 - **私有仓库示例** — README/CLI 帮助示例补全 `--password-env IMG_REGISTRY_PASSWORD` 与 `--username` 说明
 
 ## v2.2.3 (2026-10-10)

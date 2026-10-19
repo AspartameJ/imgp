@@ -788,25 +788,37 @@ func TestAuthenticatorFor_CLICredsScopedToOrigin(t *testing.T) {
 	}
 }
 
-func TestNewLayerFetcher_OrigAuthFallback(t *testing.T) {
+// TestNewLayerFetcher_CLICredsOnlyToOrigin guards the credential scoping fix:
+// CLI credentials must reach the original registry but never a mirror host,
+// even when the mirror is itself the target of a fetch for a private repo.
+func TestNewLayerFetcher_CLICredsOnlyToOrigin(t *testing.T) {
 	blobData := []byte("private layer payload")
-	var gotUser, gotPass string
 
-	mirrorMux := http.NewServeMux()
-	mirrorMux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		if !ok || u != "cli_user" || p != "cli_pass" {
-			w.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		gotUser, gotPass = u, p
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(blobData)
-	})
-	mirror := httptest.NewServer(mirrorMux)
+	newServer := func() (*httptest.Server, *bool, *bool) {
+		seenAuth := new(bool)
+		seenCreds := new(bool)
+		mux := http.NewServeMux()
+		mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" {
+				*seenAuth = true
+			}
+			if u, p, ok := r.BasicAuth(); ok && u == "cli_user" && p == "cli_pass" {
+				*seenCreds = true
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write(blobData)
+		})
+		return httptest.NewServer(mux), seenAuth, seenCreds
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.MirrorMap = nil
+	client := NewClient(cfg).WithAuth("cli_user", "cli_pass")
+
+	// Mirror host: not the registry named on the command line, so CLI creds
+	// must not be attached (no fallback to the origin's credentials).
+	mirror, mirrorAuth, mirrorCreds := newServer()
 	defer mirror.Close()
-
 	port := strings.TrimPrefix(mirror.URL, "http://127.0.0.1:")
 	mirrorRef, err := name.ParseReference(fmt.Sprintf("127.0.0.1:%s/testrepo:latest", port))
 	if err != nil {
@@ -816,23 +828,35 @@ func TestNewLayerFetcher_OrigAuthFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	cfg := config.DefaultConfig()
-	cfg.MirrorMap = nil
-	client := NewClient(cfg).WithAuth("cli_user", "cli_pass")
-
-	fetcher := client.NewLayerFetcher(mirrorRef, origReg)
-	rc, err := fetcher(context.Background(), strings.Repeat("a", 64), 0)
+	rc, err := client.NewLayerFetcher(mirrorRef, origReg)(context.Background(), strings.Repeat("a", 64), 0)
 	if err != nil {
-		t.Fatalf("fetcher error (origAuth fallback not applied): %v", err)
+		t.Fatalf("mirror fetch error: %v", err)
 	}
-	defer rc.Close()
-	got, _ := io.ReadAll(rc)
-	if !bytes.Equal(got, blobData) {
-		t.Errorf("got %q, want %q", got, blobData)
+	if got, _ := io.ReadAll(rc); !bytes.Equal(got, blobData) {
+		rc.Close()
+		t.Errorf("mirror got %q, want %q", got, blobData)
 	}
-	if gotUser != "cli_user" || gotPass != "cli_pass" {
-		t.Errorf("mirror got %q/%q, want cli_user/cli_pass (origAuth fallback)", gotUser, gotPass)
+	rc.Close()
+	if *mirrorAuth || *mirrorCreds {
+		t.Error("mirror host received CLI credentials; they must be scoped to the origin registry")
+	}
+
+	// Origin registry: it is the registry named on the command line, so the
+	// CLI credentials are sent.
+	origin, originCreds, _ := newServer()
+	defer origin.Close()
+	oPort := strings.TrimPrefix(origin.URL, "http://127.0.0.1:")
+	originRef, err := name.ParseReference(fmt.Sprintf("127.0.0.1:%s/testrepo:latest", oPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, err = client.NewLayerFetcher(originRef, originRef.Context().Registry)(context.Background(), strings.Repeat("a", 64), 0)
+	if err != nil {
+		t.Fatalf("origin fetch error: %v", err)
+	}
+	rc.Close()
+	if !*originCreds {
+		t.Error("origin registry did not receive CLI credentials")
 	}
 }
 

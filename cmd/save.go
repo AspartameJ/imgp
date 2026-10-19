@@ -14,11 +14,26 @@ import (
 	"gitcode.com/DonaldTom/imgp/internal/ui"
 )
 
+// warnCredentialMisconfig prints at most one WARN per invocation for common
+// credential mistakes, so a batch download does not repeat it for every image.
+func warnCredentialMisconfig() {
+	pw := resolvePassword()
+	switch {
+	case pw != "" && username == "":
+		fmt.Fprintln(os.Stderr, "WARN: --password/--password-env set without --username; CLI credentials are ignored. Provide --username or use config auths.")
+	case pw == "" && passwordEnv != "":
+		fmt.Fprintf(os.Stderr, "WARN: --password-env %q is unset or empty; no password will be sent\n", passwordEnv)
+	case username != "" && pw == "":
+		fmt.Fprintln(os.Stderr, "WARN: --username set without --password/--password-env; no CLI credentials will be sent.")
+	}
+}
+
 func runSave(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	warnCredentialMisconfig()
 	if len(args) == 1 {
 		return runSaveOne(cmd, cfg, args[0], "")
 	}
@@ -61,10 +76,6 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 		return fmt.Errorf("create cache: %w", err)
 	}
 
-	if p.password != "" && username == "" {
-		fmt.Fprintln(os.Stderr, "WARN: --password/--password-env set without --username; CLI credentials are ignored. Provide --username or use config auths.")
-	}
-
 	client := registry.NewClient(cfg).WithAuth(username, p.password).WithInsecure(insecure).WithRetry(p.retry)
 
 	ctx := cmd.Context()
@@ -88,7 +99,7 @@ func runSaveOne(cmd *cobra.Command, cfg *config.Config, image string, batchInfo 
 	}
 
 	if !p.quiet {
-		_, _, size := cacheInfo(cfg)
+		_, _, _, size := cacheInfo(cfg)
 		fmt.Fprintf(os.Stderr, "\nCache: %s\n", ui.FormatBytes(size))
 	}
 	return nil

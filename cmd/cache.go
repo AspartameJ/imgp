@@ -18,26 +18,30 @@ var cacheCmd = &cobra.Command{
 	Long:  "View and manage the layer cache to avoid re-downloading layers on repeat pulls.",
 }
 
-func cacheInfo(cfg *config.Config) (path string, fileCount int, totalSize int64) {
+// cacheInfo reports cache usage. verified counts the layers that carry a
+// .verified marker, i.e. complete and integrity-checked data; a layer without
+// the marker may be a partial file left by an interrupted download.
+func cacheInfo(cfg *config.Config) (path string, fileCount, verifiedCount int, totalSize int64) {
 	cd := cmdCacheDir(cfg)
 	entries, err := os.ReadDir(cd)
 	if err != nil {
-		return cd, 0, 0
+		return cd, 0, 0, 0
 	}
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".gz") {
-			continue
-		}
-		if e.IsDir() {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gz") {
 			continue
 		}
 		fi, err := e.Info()
-		if err == nil {
-			totalSize += fi.Size()
-			fileCount++
+		if err != nil {
+			continue
+		}
+		totalSize += fi.Size()
+		fileCount++
+		if _, err := os.Stat(filepath.Join(cd, e.Name()+".verified")); err == nil {
+			verifiedCount++
 		}
 	}
-	return cd, fileCount, totalSize
+	return cd, fileCount, verifiedCount, totalSize
 }
 
 func cacheClear(cfg *config.Config) (removed int, freed int64) {
@@ -73,20 +77,20 @@ func cacheClear(cfg *config.Config) (removed int, freed int64) {
 var cacheInfoCmd = &cobra.Command{
 	Use:   "info",
 	Short: "Show cache usage",
-	Long:  "Display the cache directory path, number of cached layers, and total disk usage.",
+	Long:  "Display the cache directory path, cached layer count (with the number carrying a .verified marker), and total disk usage.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		cd, fileCount, totalSize := cacheInfo(cfg)
+		cd, fileCount, verifiedCount, totalSize := cacheInfo(cfg)
 		if _, err := os.Stat(cd); os.IsNotExist(err) {
 			fmt.Printf("Cache directory: %s (not yet created)\n", cd)
 			fmt.Printf("Cached layers:   0\n")
 			fmt.Printf("Total size:      0 B\n")
 		} else {
 			fmt.Printf("Cache directory: %s\n", cd)
-			fmt.Printf("Cached layers:   %d\n", fileCount)
+			fmt.Printf("Cached layers:   %d (%d verified)\n", fileCount, verifiedCount)
 			fmt.Printf("Total size:      %s\n", ui.FormatBytes(totalSize))
 		}
 		return nil
@@ -112,5 +116,5 @@ func init() {
 	rootCmd.AddCommand(cacheCmd)
 	cacheCmd.AddCommand(cacheInfoCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
-	cacheCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "Custom cache directory (default: OS-specific path)")
+	cacheCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", cacheDirUsage)
 }

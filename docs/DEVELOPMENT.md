@@ -113,7 +113,7 @@ registry.Client.authenticatorFor(reg, origReg)   # internal/registry/client.go
 
 **注意**:
 - CLI 凭据必须 `--username` 与 `--password`/`--password-env` 同时提供；只给密码会被忽略（`cmd/save.go` 输出 WARN）。
-- 凭据按 registry 作用域：镜像加速站（非原始 registry）不会收到 CLI 凭据，只会用 config auths 或匿名。若镜像站匿名失败而原始 registry 有认证，`tryReference()` / `NewLayerFetcher()` 会回退到原始 registry 的认证（支持"私有 registry + 匿名镜像站"场景）。
+- 凭据按 registry 作用域：镜像加速站（非原始 registry）不会收到 CLI 凭据，只会用 config auths 或匿名；不会回退使用原始 registry 的凭据。私有仓库经第三方镜像站拉取时靠 `resolveRefs()` 末尾的原始地址（带凭据）重试兜底。
 - `resolveAuth()` 中如果 `PasswordEnv` 设置了但环境变量不存在，会回退到 `Password` 字段并输出 WARN 到 stderr。
 
 ### 4.2 缓存机制
@@ -125,12 +125,13 @@ registry.Client.authenticatorFor(reg, origReg)   # internal/registry/client.go
     └── <sha256-hex>.gz.verified   # 验证通过标记
 
 checkCache()                  # internal/puller/puller.go
-  ├─ 文件存在且大小匹配？
-  ├─ gzip magic bytes (0x1f 0x8b) 正确？
+  ├─ --no-cache → 直接跳过（返回未命中）
+  ├─ 文件存在且大小匹配？（不匹配视为部分文件：保留文件，仅删 .verified 标记，交给续传）
+  ├─ gzip magic bytes (0x1f 0x8b) 正确？（错误则连同标记一起删除）
   ├─ .verified 标记存在且不早于 .gz → 直接信任（快速路径）
   ├─ 标记缺失或过期 → 对文件做 sha256 与 manifest digest 比对
   │   ├─ 匹配 → 重写标记，标记 "cached"
-  │   └─ 不匹配 → 删除文件，重新下载
+  │   └─ 不匹配 → 删除文件（及标记），重新下载
   └─ 全部满足 → 跳过下载，标记 "cached"
 
 downloadAttempt()             # internal/puller/puller.go
@@ -178,7 +179,7 @@ for attempt = 0; attempt <= p.maxRetries; attempt++ {
 }
 ```
 
-**可重试错误判定** (`internal/util/arch.go`):
+**可重试错误判定** (`internal/util/errors.go`):
 
 | 类型 | 示例 | 是否重试 |
 |------|------|----------|
@@ -317,10 +318,10 @@ server, img, ref := mockRegistry(t, imgSize, numLayers)
 
 | Package | 当前覆盖率 | 目标 |
 |---------|-----------|------|
-| `cmd/` | ~82% | ≥80% |
+| `cmd/` | ~85% | ≥80% |
 | `internal/config/` | ~88% | ≥85% |
 | `internal/puller/` | ~85% | ≥80% |
-| `internal/registry/` | ~92% | ≥90% |
+| `internal/registry/` | ~93% | ≥90% |
 | `internal/saver/` | ~86% | ≥85% |
 | `internal/ui/` | ~89% | ≥85% |
 | `internal/util/` | ~91% | ≥90% |
@@ -391,7 +392,7 @@ git tag vX.Y.Z
 git push && git push origin vX.Y.Z
 
 # 4. 在 GitHub/GitCode Releases 页面创建 Release
-#    上传 bin\imgp.exe 作为附件
+#    上传 bin\imgp.exe 作为附件（仓库无自动化发布，需手动执行）
 ```
 
 ### 8.2 兼容性注意事项

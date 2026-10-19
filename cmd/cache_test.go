@@ -14,12 +14,12 @@ func TestCacheInfo_Empty(t *testing.T) {
 	cacheDir = tmpDir
 	defer func() { cacheDir = "" }()
 
-	path, count, size := cacheInfo(cfg)
+	path, count, verified, size := cacheInfo(cfg)
 	if path != tmpDir {
 		t.Errorf("path = %q, want %q", path, tmpDir)
 	}
-	if count != 0 {
-		t.Errorf("count = %d, want 0", count)
+	if count != 0 || verified != 0 {
+		t.Errorf("count = %d, verified = %d, want 0, 0", count, verified)
 	}
 	if size != 0 {
 		t.Errorf("size = %d, want 0", size)
@@ -33,15 +33,19 @@ func TestCacheInfo_WithFiles(t *testing.T) {
 	defer func() { cacheDir = "" }()
 
 	os.WriteFile(filepath.Join(tmpDir, "abc123.gz"), make([]byte, 100), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "abc123.gz.verified"), nil, 0644)
 	os.WriteFile(filepath.Join(tmpDir, "def456.gz"), make([]byte, 200), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("ignore"), 0644)
 
-	path, count, size := cacheInfo(cfg)
+	path, count, verified, size := cacheInfo(cfg)
 	if path != tmpDir {
 		t.Errorf("path = %q, want %q", path, tmpDir)
 	}
 	if count != 2 {
 		t.Errorf("count = %d, want 2", count)
+	}
+	if verified != 1 {
+		t.Errorf("verified = %d, want 1 (only abc123 has a marker)", verified)
 	}
 	if size != 300 {
 		t.Errorf("size = %d, want 300", size)

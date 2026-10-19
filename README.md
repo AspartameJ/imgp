@@ -1,4 +1,4 @@
-[English](README_EN.md) | 中文
+[English](README_EN.md) | 中文 | [更新日志](CHANGELOG.md)
 
 # imgp
 
@@ -9,7 +9,7 @@ imgp save hello-world:latest -o hello-world.tar
 docker load -i hello-world.tar
 ```
 
-从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp-windows-amd64.exe` 放入 `PATH` 即可，或 `go install gitcode.com/DonaldTom/imgp@latest`。Linux/macOS 请从源码编译（见下方“从源码编译”）。
+从 [Releases](https://gitcode.com/DonaldTom/imgp/releases) 下载 `imgp.exe` 放入 `PATH` 即可，或 `go install gitcode.com/DonaldTom/imgp@latest`。Linux/macOS 请从源码编译（见下方“从源码编译”）。仓库未提供自动化发布流程，Windows 二进制由本地 `build.ps1` 产出，见 [开发文档 §8](docs/DEVELOPMENT.md)。
 
 ---
 
@@ -75,7 +75,7 @@ flowchart TD
     C --> E{缓存命中?}
     E -- 是 --> F[使用缓存 ✓]
     E -- 否 --> D
-    D --> G{有部分文件且未 --no-resume?}
+    D --> G{有部分文件且未 --no-cache/--no-resume?}
     G -- 是 --> H[offset = 已有字节数]
     G -- 否 --> I[offset = 0, 删除部分文件]
     H --> J[HTTP Range 请求 bytes=offset-]
@@ -140,7 +140,7 @@ flowchart TD
 | `--timeout` | int | `0`(不限) | 整体超时（分钟） |
 | `--layer-timeout` | int | `30` | 每层超时（分钟） |
 | `--retry` | int | `2` | 重试次数（`0`=不重试） |
-| `-q, --quiet` | bool | `false` | 只输出路径 |
+| `-q, --quiet` | bool | `false` | stdout 只输出路径（进度与 WARN 仍写 stderr） |
 
 > `--password` / `--password-env` 仅在同时提供 `--username` 时生效；只给密码会被忽略（stderr 有 WARN）。凭据只会发送到镜像名对应的原始 registry，不会发给第三方加速站。
 
@@ -152,7 +152,9 @@ imgp cache clear           # 清空缓存
 imgp cache info --cache-dir D:\imgp-cache   # 指定缓存目录
 ```
 
-默认路径：Windows `%LOCALAPPDATA%\imgp\cache`，Linux `~/.cache/imgp`，macOS `~/Library/Caches/imgp`。
+默认路径：Windows `%LOCALAPPDATA%\imgp\cache`，Linux `$XDG_CACHE_HOME/imgp` 或 `~/.cache/imgp`，macOS `~/Library/Caches/imgp`。
+
+`cache info` 会显示 `Cached layers: N (M verified)`；带 `.verified` 标记的是校验通过的完整层，未带标记的可能是中断下载留下的部分文件（重跑会继续续传，`cache clear` 会清除）。
 
 ### 配置管理
 
@@ -166,7 +168,7 @@ imgp cache info --cache-dir D:\imgp-cache   # 指定缓存目录
 }
 ```
 
-可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。完整字段示例见 [imgp.json.example](imgp.json.example)。
+可用配置项：`mirror-map`、`parallelism`、`retry`、`cache-dir`、`insecure-registries`、`layer-timeout`、`timeout`。`auths` 仅支持直接编辑配置文件（密码不会被持久化写入）。完整字段示例见 [imgp.json.example](imgp.json.example)。
 
 ---
 
@@ -184,6 +186,7 @@ imgp cache info --cache-dir D:\imgp-cache   # 指定缓存目录
 自定义：`imgp config set mirror-map "docker.io=my-mirror.com"`（`|` 分隔多个，按顺序尝试）。
 
 > 镜像地址不加 `https://`；digest 引用暂不支持加速。
+> 私有仓库 + 加速站：CLI 凭据只发往镜像名对应的原始 registry，加速站按 config auths（无则匿名）访问；拉取失败时原始地址仍会带凭据重试。若加速站本身需要认证，请在 config `auths` 中为它单独配置。
 
 ---
 
@@ -206,7 +209,7 @@ imgp save large-image:latest --no-resume -o large.tar  # 强制全量重下
 
 ### 支持哪些平台？
 
-格式 `os/arch`：`linux/amd64`（默认）、`linux/arm64`、`linux/arm64/v8`、`windows/amd64`、`windows/arm64`、`darwin/amd64`、`darwin/arm64`。
+格式 `os/arch` 或 `os/arch/variant`，如 `linux/amd64`（默认）、`linux/arm64/v8`、`windows/arm64`。架构名会被校验，共 14 种：`386`、`amd64`、`arm`、`arm64`、`loong64`、`mips`、`mips64`、`mips64le`、`mipsle`、`ppc64`、`ppc64le`、`riscv64`、`s390x`、`wasm`。`--platform` 支持 shell 补全，常见笔误有提示（如 `aarch64` → `arm64`）。
 
 ### Docker Hub 访问不了？
 

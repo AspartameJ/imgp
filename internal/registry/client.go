@@ -177,11 +177,10 @@ func parsePlatform(platform string) (*v1.Platform, error) {
 // with per-call context support, allowing per-layer timeouts and resumable
 // downloads via HTTP Range requests. When offset > 0, the request asks the
 // registry for the blob content starting at that byte offset. origReg is the
-// registry from the original image reference; its credentials are used as a
-// fallback when ref points at an anonymous mirror of a private registry.
+// registry from the original image reference; CLI credentials are only sent
+// to it, never to a mirror host named by ref.
 func (c *Client) NewLayerFetcher(ref name.Reference, origReg name.Registry) func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 	repo := ref.Context()
-	origAuth := c.authenticator(origReg)
 	return func(ctx context.Context, digestHex string, offset int64) (io.ReadCloser, error) {
 		hex := strings.TrimPrefix(digestHex, "sha256:")
 		reg := repo.Registry
@@ -200,9 +199,6 @@ func (c *Client) NewLayerFetcher(ref name.Reference, origReg name.Registry) func
 		req.Header.Set("User-Agent", userAgent)
 
 		auth := c.authenticatorFor(reg, origReg)
-		if auth == authn.Anonymous && origAuth != authn.Anonymous {
-			auth = origAuth
-		}
 		tr, err := transport.NewWithContext(ctx, reg, auth, c.transport(reg), []string{repo.Scope(transport.PullScope)})
 		if err != nil {
 			return nil, err
@@ -252,7 +248,6 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 	if err != nil {
 		return nil, nil, err
 	}
-	origAuth := c.authenticator(ref.Context().Registry)
 
 	skipRef := make(map[string]bool)
 	var lastErr error
@@ -269,7 +264,7 @@ func (c *Client) FetchImage(ctx context.Context, image, platform string) (v1.Ima
 			if skipRef[r.String()] {
 				continue
 			}
-			img, err := c.tryReference(ctx, r, origAuth, ref.Context().Registry, plat)
+			img, err := c.tryReference(ctx, r, ref.Context().Registry, plat)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", r.String(), err))
 				lastErr = err
@@ -333,12 +328,9 @@ func (c *Client) resolveRefs(ref name.Reference) []name.Reference {
 	return append(refs, ref)
 }
 
-func (c *Client) tryReference(ctx context.Context, r name.Reference, origAuth authn.Authenticator, origReg name.Registry, plat *v1.Platform) (v1.Image, error) {
+func (c *Client) tryReference(ctx context.Context, r name.Reference, origReg name.Registry, plat *v1.Platform) (v1.Image, error) {
 	reg := r.Context().Registry
 	auth := c.authenticatorFor(reg, origReg)
-	if auth == authn.Anonymous && origAuth != authn.Anonymous {
-		auth = origAuth
-	}
 	opts := []remote.Option{
 		remote.WithAuth(auth),
 		remote.WithTransport(c.transport(reg)),

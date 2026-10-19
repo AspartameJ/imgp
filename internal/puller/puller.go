@@ -342,11 +342,12 @@ func (p *Puller) processTask(ctx context.Context, ch chan<- PullEvent, t LayerTa
 		if err := os.Remove(cacheFile); err != nil && !os.IsNotExist(err) {
 			sendEvent(ctx, ch, PullEvent{
 				Index: t.Index, Digest: t.DigestHex,
-				Err: fmt.Errorf("remove cache: %w", err),
+				Err:    fmt.Errorf("remove cache: %w", err),
+				Status: "error",
 			})
 			return
 		}
-		removeCacheFile(cacheFile + ".verified")
+		removeCacheArtifacts(cacheFile)
 	}
 
 	if !sendEvent(ctx, ch, PullEvent{
